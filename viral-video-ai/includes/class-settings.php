@@ -426,19 +426,33 @@ class VVAI_Settings {
 			return (string) $default;
 		}
 
-		// Reject anything that could chain commands or redirect.
-		if ( preg_match( '/[;&|`$><\n\r"\'\\\\]/', $value ) ) {
+		// Reject shell chaining/redirection and quotes. Backslashes and colons are
+		// deliberately kept: they are how a Windows path looks
+		// (C:\ffmpeg\bin\ffmpeg.exe), and VVAI_Process::binary_is_safe() re-validates
+		// the value before anything is executed.
+		if ( preg_match( '/[;&|`$><\n\r]/', $value ) || false !== strpos( $value, '"' ) || false !== strpos( $value, "'" ) ) {
 			return (string) $default;
 		}
 
-		if ( ! preg_match( '#^(?:/[A-Za-z0-9._/-]+|[A-Za-z0-9._-]+|[A-Za-z]:[\\\\/][A-Za-z0-9._\\\\/-]+)$#', $value ) ) {
+		$is_windows = (bool) preg_match( '#^[A-Za-z]:[\\\\/].*$#', $value );
+
+		if ( $is_windows ) {
+			// Drive letter, then a normal path: letters, digits, spaces, . _ - and slashes.
+			if ( ! preg_match( '#^[A-Za-z]:[\\\\/][A-Za-z0-9 ._%+~()\\\\/-]*$#', $value ) ) {
+				return (string) $default;
+			}
+
+			if ( false !== strpos( str_replace( '\\', '/', $value ), '..' ) ) {
+				return (string) $default;
+			}
+		} elseif ( ! preg_match( '#^(?:/[A-Za-z0-9._/-]+|[A-Za-z0-9._-]+|[A-Za-z0-9._\\\\/-]+\.[A-Za-z0-9]+)$#', $value ) ) {
 			return (string) $default;
 		}
 
-		// Absolute paths must not point at the web root's executables.
-		if ( 0 === strpos( $value, '/' ) ) {
+		// An executable must never live inside the web-writable uploads tree.
+		if ( 0 === strpos( $value, '/' ) || $is_windows ) {
 			$uploads = wp_get_upload_dir();
-			$basedir = wp_normalize_path( $uploads['basedir'] );
+			$basedir = trailingslashit( wp_normalize_path( $uploads['basedir'] ) );
 
 			if ( 0 === strpos( wp_normalize_path( $value ), $basedir ) ) {
 				return (string) $default;

@@ -66,6 +66,13 @@ class VVAI_FFMPEG {
 	 * @return array{ffmpeg:array<string,mixed>,ffprobe:array<string,mixed>,ok:bool}
 	 */
 	public function availability( $fresh = false ) {
+		// A forced re-probe is only honoured right after an explicit "Re-check now".
+		// Rendering the dashboard or settings many times a minute must not spawn
+		// three processes each time (and must not expose a host error to the user).
+		if ( $fresh && ! get_transient( 'vvai_force_probe' ) ) {
+			$fresh = false;
+		}
+
 		if ( ! $fresh ) {
 			$cached = get_transient( self::CACHE_AVAIL );
 
@@ -122,7 +129,19 @@ class VVAI_FFMPEG {
 			return $result;
 		}
 
-		$run = VVAI_Process::run( array( $binary, '-version' ), array( 'timeout' => 20 ) );
+		try {
+			$run = VVAI_Process::run( array( $binary, '-version' ), array( 'timeout' => 20 ) );
+		} catch ( \Throwable $throwable ) {
+			// Never fatal a page over a missing binary: report it instead.
+			$result['error'] = sprintf(
+				/* translators: %s: error message. */
+				__( '%s could not be probed: %s', 'viral-video-ai' ),
+				ucfirst( $label ),
+				$throwable->getMessage()
+			);
+
+			return $result;
+		}
 
 		if ( '' !== $run['error'] && 0 !== (int) $run['code'] ) {
 			$result['error'] = $run['error'];
@@ -172,7 +191,12 @@ class VVAI_FFMPEG {
 
 		// `ffmpeg -loglevel error -encoders` is one extra process but reliable and
 		// cached for five minutes by availability().
-		$run = VVAI_Process::run( array( $binary, '-hide_banner', '-loglevel', 'error', '-encoders' ), array( 'timeout' => 20 ) );
+		try {
+			$run = VVAI_Process::run( array( $binary, '-hide_banner', '-loglevel', 'error', '-encoders' ), array( 'timeout' => 20 ) );
+		} catch ( \Throwable $throwable ) {
+			return $encoders;
+		}
+
 		$out = strtolower( (string) $run['stdout'] . (string) $run['stderr'] );
 
 		foreach ( array( 'libx264', 'libx265', 'aac', 'libmp3lame', 'libvpx-vp9', 'libaom-av1', 'h264_nvenc', 'libass', 'subtitles' ) as $needle ) {

@@ -77,6 +77,8 @@ class VVAI_Diagnostics {
 			$this->settings->max_upload_bytes() >= 100 * MB_IN_BYTES ? 'ready' : 'warning'
 		);
 
+		// availability() self-censors: it only re-probes when a recheck was asked
+		// for, so this stays cheap on every dashboard load.
 		$availability = $this->ffmpeg->availability( true );
 
 		$items[] = $this->item(
@@ -295,7 +297,18 @@ class VVAI_Diagnostics {
 	 * @return array<string,mixed>
 	 */
 	public function summary() {
-		$report    = $this->report();
+		try {
+			$report = $this->report();
+		} catch ( \Throwable $throwable ) {
+			// Diagnostics must never be the thing that breaks wp-admin.
+			$report = array(
+				'items'    => array(),
+				'ready'    => false,
+				'warnings' => 0,
+				'problems' => 1,
+			);
+		}
+
 		$available = $this->ffmpeg->availability();
 
 		return array(

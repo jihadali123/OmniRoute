@@ -4,7 +4,7 @@ Tags: video, ai, ffmpeg, shorts, reels, tiktok, transcription, clips
 Requires at least: 6.1
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 1.0.0
+Stable tag: 1.0.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -58,11 +58,36 @@ The plugin never installs binaries; it uses what the server has.
 * Alma/RHEL: `sudo dnf install --enablerepo=crb ffmpeg-free` (or RPM Fusion) then confirm `ffmpeg -version`
 * Alpine: `apk add ffmpeg`
 * Docker/`ffmpeg-static` builds: any build with `libx264` + `aac` works; `libass` is needed for burned-in captions
-* Windows: download a static build, then point the settings at `C:\path\ffmpeg.exe` and `C:\path\ffprobe.exe`
+* Windows (XAMPP/WAMP/MAMP): download a release from `https://www.gyan.dev/ffmpeg/builds/` (e.g. `ffmpeg-release-essentials.zip`), extract it to a short path such as `C:\ffmpeg`, then either add `C:\ffmpeg\bin` to the system `PATH` and restart Apache/your site, or set the absolute paths in Viral Video AI → Settings:
+  `C:\ffmpeg\bin\ffmpeg.exe` and `C:\ffmpeg\bin\ffprobe.exe`
+* Local by Flywheel (Windows/macOS): Local's PHP cannot see your user `PATH` unless the app was restarted after changing it, so the reliable route is the absolute path in Settings, then Viral Video AI → Diagnostics → "Re-check now". Local serves the site with nginx — see "Protecting rendered files" below.
 
 If the binaries are not on `PATH`, set the absolute paths in **Viral Video AI → Settings → Server & rendering** and press "Re-check now" in Diagnostics. Common locations: `/usr/bin/ffmpeg`, `/usr/local/bin/ffmpeg`, `/opt/homebrew/bin/ffmpeg`.
 
 Verify from the shell that the web user can execute it: `sudo -u www-data ffmpeg -version`.
+
+== Protecting rendered files ==
+
+The plugin writes sources and clips under `wp-content/uploads/vvai/` and guards each folder with an `.htaccess` deny rule plus an `index.php`. Every download is *also* authorised in PHP, so a direct link is never required to watch or fetch a clip.
+
+Apache and LiteSpeed honour the `.htaccess` rule automatically. **nginx ignores `.htaccess`** (Local by Flywheel, most managed nginx hosts), so deny it in the server config — for Local, edit the site's `conf/nginx.conf` (or add to the site root's `nginx.conf` include) and restart the site:
+
+`
+location ~* ^/wp-content/uploads/vvai/ {
+    deny all;
+    return 404;
+}
+`
+
+On nginx hosts where you cannot edit config, either move the storage root out of the web root with the `vvai_storage_dir` filter (recommended for production anyway):
+
+`
+add_filter( 'vvai_storage_dir', function () {
+	return '/var/www/vvai-data'; // outside any document root
+} );
+`
+
+or set `allow_public_downloads` to off (the default) and accept that filenames under `/uploads/vvai/` are guessable only by someone who already knows a job id. With the storage root outside the web root, clips are reachable *only* through the plugin's authorising controller.
 
 == AI connections ==
 
@@ -123,6 +148,8 @@ Daily housekeeping deletes scratch audio, orphaned upload sessions and clips old
 
 == Troubleshooting ==
 
+**"Fatal error: fclose(): supplied resource is not a valid stream resource" after activating (Windows/Local)** — fixed in 1.0.1; update the plugin. If it still appears on an older build, the host's PHP closes proc_open pipes eagerly and FFmpeg cannot be probed safely.
+
 **Diagnostics says FFmpeg is not available** — the binary is missing, or `exec`/`proc_open` are in `disable_functions`, or the path is wrong. Test with `which ffmpeg && ffmpeg -version`, then `sudo -u www-data ffmpeg -version`. On hosts that block `proc_open`, no server-side rendering is possible: ask the host to allow it, or use a rendering worker (`vvai_process_runner`).
 
 **"Connection failed — invalid API key"** — the key is wrong, revoked, or belongs to a different provider. Paste it again; check the provider's billing page. Free/trial keys can expire or be region-restricted.
@@ -156,6 +183,12 @@ REST: `vvai/v1` — `/providers`, `/connections` (+`/{id}/connect|disconnect|act
 Tests: the plugin ships a standalone suite that runs against a real PHP CLI (`php tests/run-tests.php`) and, when the dev harness is present, drives real FFmpeg renders and a real local provider. See `tests/README.md`.
 
 == Changelog ==
+
+= 1.0.1 =
+* Fixed a fatal error on activation for Windows/Local by Flywheel: `fclose()` was called on FFmpeg pipes that `proc_close()` had already closed (PHP 8 raises TypeError for the dead resource). Pipe handling is now resource-guarded and the whole process call is exception-contained, so a host quirk reports a diagnostics row instead of white-screening wp-admin.
+* Fixed FFmpeg/FFprobe paths on Windows being impossible to configure: the sanitizers rejected every backslash, so `C:\ffmpeg\bin\ffmpeg.exe` silently fell back to `ffmpeg`. Windows absolute paths (including spaces) are now accepted, while shell chaining, quotes, traversal and uploads-basedir binaries are still refused.
+* Binary probing is no longer repeated on every admin page load: Diagnostics "Re-check now" opts into a single uncached probe, everything else uses the 5-minute cache (fewer spawned processes on shared hosting).
+* Added "Protecting rendered files": nginx ignores `.htaccess`, so a deny snippet and the `vvai_storage_dir` option to store media outside the document root are documented.
 
 = 1.0.0 =
 * First production release: chunked resumable uploads, ffprobe inspection, chunked transcription with timestamped segments, provider-agnostic AI analysis (OpenAI, Gemini, Claude, Groq, OpenRouter, custom), strict JSON validation with timestamp snapping and overlap removal, FFmpeg clip rendering with smart vertical reframing and no-upscale clamping, SRT sidecars and optional burn-in, viral score/title/caption/hashtags per clip, secure ranged downloads, resumable background queue, per-stage retry, retention cleanup, diagnostics, Elementor widget and shortcode.

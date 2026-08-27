@@ -411,6 +411,9 @@ class VVAI_Ajax {
 		delete_transient( 'vvai_loopback_check' );
 		delete_transient( 'vvai_rest_reachable' );
 
+		// Grants exactly one uncached probe (consumed by availability()).
+		set_transient( 'vvai_force_probe', 1, 60 );
+
 		return array( 'report' => $this->plugin->diagnostics()->report() );
 	}
 

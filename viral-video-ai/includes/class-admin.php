@@ -122,6 +122,40 @@ class VVAI_Admin {
 		wp_enqueue_style( 'vvai-admin', VVAI_PLUGIN_URL . 'admin/css/admin.css', array(), VVAI_VERSION );
 		wp_enqueue_script( 'vvai-admin', VVAI_PLUGIN_URL . 'admin/js/admin.js', array(), VVAI_VERSION, true );
 
+		try {
+			$this->localize_assets();
+		} catch ( \Throwable $throwable ) {
+			// An asset payload must never white-screen wp-admin. The screens still
+			// render; only the interactive enhancers are skipped, with the reason
+			// written to the log for the host to read.
+			$this->plugin->logger()->error(
+				'Admin asset build failed',
+				array(
+					'class' => get_class( $throwable ),
+					'message' => substr( $throwable->getMessage(), 0, 200 ),
+				)
+			);
+
+			wp_localize_script(
+				'vvai-admin',
+				'VVAIAdmin',
+				array(
+					'restUrl'   => esc_url_raw( rest_url( VVAI_REST_NAMESPACE ) ),
+					'ajaxUrl'   => esc_url_raw( admin_url( 'admin-ajax.php' ) ),
+					'nonce'     => wp_create_nonce( 'wp_rest' ),
+					'ajaxNonce' => wp_create_nonce( 'vvai_admin' ),
+					'page'      => $this->current_page_key( $hook ),
+					'i18n'      => array( 'configUnavailable' => __( 'Screen data could not be loaded — see the plugin log.', 'viral-video-ai' ) ),
+					'config'    => array(),
+				)
+			);
+		}
+	}
+
+	/**
+	 * Build and attach the admin bootstrap payload.
+	 */
+	protected function localize_assets() {
 		wp_localize_script(
 			'vvai-admin',
 			'VVAIAdmin',
@@ -373,7 +407,8 @@ class VVAI_Admin {
 					'time_limit'    => (string) ini_get( 'max_execution_time' ),
 				),
 				'connections' => $this->plugin->connections()->list_public(),
-				'ffmpeg'      => $this->plugin->ffmpeg()->availability( true ),
+				// Cached here; the Diagnostics screen forces a fresh probe.
+				'ffmpeg'      => $this->plugin->ffmpeg()->availability(),
 				'scheduler'   => array(
 					'async'    => VVAI_Job_Queue::has_async_scheduler(),
 					'heartbeat' => (int) ( wp_next_scheduled( VVAI_Job_Queue::HEARTBEAT ) ?: 0 ),
@@ -388,7 +423,9 @@ class VVAI_Admin {
 	 * Diagnostics page.
 	 */
 	public function page_diagnostics() {
+		// Re-probe binaries exactly once, here, on explicit page load.
 		delete_transient( VVAI_FFMPEG::CACHE_AVAIL );
+		set_transient( 'vvai_force_probe', 1, 60 );
 
 		$this->view(
 			'diagnostics',

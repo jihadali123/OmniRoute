@@ -102,12 +102,24 @@ class VVAI_Process {
 		$timeout = isset( $args['timeout'] ) ? max( 1, (int) $args['timeout'] ) : 300;
 		$started = microtime( true );
 
-		if ( function_exists( 'proc_open' ) && ! vvai_function_disabled( 'proc_open' ) ) {
-			$result = self::run_with_proc_open( $argv, $args, $timeout, $result );
-		} elseif ( function_exists( 'exec' ) && ! vvai_function_disabled( 'exec' ) ) {
-			$result = self::run_with_exec( $argv, $timeout, $result );
-		} else {
-			$result['error'] = __( 'This server does not allow PHP to run external commands (proc_open and exec are disabled).', 'viral-video-ai' );
+		try {
+			if ( function_exists( 'proc_open' ) && ! vvai_function_disabled( 'proc_open' ) ) {
+				$result = self::run_with_proc_open( $argv, $args, $timeout, $result );
+			} elseif ( function_exists( 'exec' ) && ! vvai_function_disabled( 'exec' ) ) {
+				$result = self::run_with_exec( $argv, $timeout, $result );
+			} else {
+				$result['error'] = __( 'This server does not allow PHP to run external commands (proc_open and exec are disabled).', 'viral-video-ai' );
+			}
+		} catch ( \Throwable $throwable ) {
+			// A binary probe must never take a page down: report it as a failed run
+			// so Diagnostics can show it and the pipeline can fail with a reason.
+			$result['code']  = -1;
+			$result['error'] = sprintf(
+				/* translators: 1: error class, 2: message. */
+				__( 'The server could not run the command (%1$s): %2$s', 'viral-video-ai' ),
+				get_class( $throwable ),
+				$throwable->getMessage()
+			);
 		}
 
 		$result['duration'] = round( microtime( true ) - $started, 3 );
@@ -142,8 +154,33 @@ class VVAI_Process {
 			return false;
 		}
 
-		if ( preg_match( '/[;&|`$><\n\r\'"\\\\]/', $binary ) ) {
+		// Shell syntax is what must never reach a command line. Backslashes are
+		// allowed because they are the Windows path separator — a real Windows
+		// install cannot set C:\\ffmpeg\\bin\\ffmpeg.exe otherwise.
+		if ( preg_match( '/[;&|`$><\n\r]/', $binary ) || false !== strpos( $binary, '"' ) || false !== strpos( $binary, "'" ) ) {
 			return false;
+		}
+
+		$windows = (bool) preg_match( '#^[A-Za-z]:[\\\\/][^";\'\r\n<>|&`$]*$#', $binary );
+
+		if ( $windows ) {
+			if ( false !== strpos( str_replace( '\\', '/', $binary ), '..' ) ) {
+				return false;
+			}
+
+			$resolved = wp_normalize_path( $binary );
+
+			if ( ! is_file( $binary ) && ! is_file( $resolved ) ) {
+				return false;
+			}
+
+			$uploads = wp_get_upload_dir();
+
+			if ( 0 === strpos( $resolved, trailingslashit( wp_normalize_path( $uploads['basedir'] ) ) ) ) {
+				return false;
+			}
+
+			return true;
 		}
 
 		if ( preg_match( '#^/[A-Za-z0-9._/-]+$#', $binary ) ) {
@@ -211,6 +248,52 @@ class VVAI_Process {
 	}
 
 	/**
+	 * Is this file descriptor still a usable pipe?
+	 *
+	 * @param array<int,mixed> $pipes Pipe map from proc_open().
+	 * @param int              $fd    Descriptor index.
+	 * @return bool
+	 */
+	private static function is_pipe( $pipes, $fd ) {
+		return isset( $pipes[ $fd ] ) && is_resource( $pipes[ $fd ] );
+	}
+
+	/**
+	 * Read the remainder of a pipe, tolerating an already-closed one.
+	 *
+	 * @param array<int,mixed> $pipes Pipe map.
+	 * @param int              $fd    Descriptor index.
+	 * @return string
+	 */
+	private static function drain_pipe( $pipes, $fd ) {
+		if ( ! self::is_pipe( $pipes, $fd ) ) {
+			return '';
+		}
+
+		$rest = @stream_get_contents( $pipes[ $fd ] );
+
+		return is_string( $rest ) ? $rest : '';
+	}
+
+	/**
+	 * Close a pipe only when it is still open.
+	 *
+	 * @param array<int,mixed> $pipes Pipe map (by reference so the slot clears).
+	 * @param int              $fd    Descriptor index.
+	 */
+	private static function close_pipe( &$pipes, $fd ) {
+		if ( ! isset( $pipes[ $fd ] ) ) {
+			return;
+		}
+
+		if ( is_resource( $pipes[ $fd ] ) ) {
+			fclose( $pipes[ $fd ] ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- guarded by is_resource().
+		}
+
+		unset( $pipes[ $fd ] );
+	}
+
+	/**
 	 * proc_open based runner with separated stdout/stderr and a real timeout.
 	 *
 	 * @param string[] $argv    argv.
@@ -239,34 +322,49 @@ class VVAI_Process {
 			return $result;
 		}
 
-		if ( isset( $args['stdin'] ) && '' !== $args['stdin'] ) {
+		if ( isset( $args['stdin'] ) && '' !== $args['stdin'] && self::is_pipe( $pipes, 0 ) ) {
 			fwrite( $pipes[0], (string) $args['stdin'] ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite -- feeding stdin.
 		}
 
-		fclose( $pipes[0] );
+		self::close_pipe( $pipes, 0 );
 
-		stream_set_blocking( $pipes[1], false );
-		stream_set_blocking( $pipes[2], false );
+		// The child may have died immediately (binary missing, blocked exec, a
+		// host that closes pipes early), so every pipe access is guarded.
+		if ( self::is_pipe( $pipes, 1 ) ) {
+			stream_set_blocking( $pipes[1], false );
+		}
+
+		if ( self::is_pipe( $pipes, 2 ) ) {
+			stream_set_blocking( $pipes[2], false );
+		}
 
 		$stdout = '';
 		$stderr = '';
 		$deadline = microtime( true ) + $timeout;
 
 		while ( true ) {
-			$read   = array( $pipes[1], $pipes[2] );
+			$read  = array();
+			$index = array();
+
+			foreach ( array( 1 => 'out', 2 => 'err' ) as $fd => $slot ) {
+				if ( self::is_pipe( $pipes, $fd ) ) {
+					$read[ $slot ] = $pipes[ $fd ];
+				}
+			}
+
 			$write  = null;
 			$except = null;
-			$ready  = @stream_select( $read, $write, $except, 1 );
+			$ready  = $read ? @stream_select( $read, $write, $except, 1 ) : false;
 
 			if ( is_int( $ready ) && $ready > 0 ) {
-				foreach ( $read as $stream ) {
-					$chunk = fread( $stream, 8192 );
+				foreach ( $read as $slot => $stream ) {
+					$chunk = self::is_pipe( $pipes, 'out' === $slot ? 1 : 2 ) ? fread( $stream, 8192 ) : '';
 
 					if ( false === $chunk || '' === $chunk ) {
 						continue;
 					}
 
-					if ( $stream === $pipes[1] ) {
+					if ( 'out' === $slot ) {
 						$stdout .= $chunk;
 					} else {
 						$stderr .= $chunk;
@@ -274,24 +372,27 @@ class VVAI_Process {
 				}
 			}
 
-			$status = proc_get_status( $process );
+			$status = is_resource( $process ) ? proc_get_status( $process ) : array( 'running' => false );
 
 			if ( empty( $status['running'] ) ) {
-				// Drain what is left in the buffers before finishing.
-				$stdout .= stream_get_contents( $pipes[1] );
-				$stderr .= stream_get_contents( $pipes[2] );
+				// Drain whatever is still buffered, then finish.
+				$stdout .= self::drain_pipe( $pipes, 1 );
+				$stderr .= self::drain_pipe( $pipes, 2 );
 				break;
 			}
 
 			if ( microtime( true ) > $deadline ) {
-				proc_terminate( $process, 14 ); // SIGALRM: ffmpeg prints "Killed" instead of hanging silently.
+				if ( is_resource( $process ) ) {
+					proc_terminate( $process, 14 ); // SIGALRM: ffmpeg prints "Killed" instead of hanging silently.
+				}
+
 				usleep( 200000 );
-				$stdout .= stream_get_contents( $pipes[1] );
-				$stderr .= stream_get_contents( $pipes[2] );
+				$stdout .= self::drain_pipe( $pipes, 1 );
+				$stderr .= self::drain_pipe( $pipes, 2 );
 
-				$status = proc_get_status( $process );
+				$status = is_resource( $process ) ? proc_get_status( $process ) : array( 'running' => false );
 
-				if ( ! empty( $status['running'] ) ) {
+				if ( ! empty( $status['running'] ) && is_resource( $process ) ) {
 					proc_terminate( $process, 9 );
 				}
 
@@ -305,10 +406,14 @@ class VVAI_Process {
 			}
 		}
 
-		$code = proc_close( $process );
+		$code = is_resource( $process ) ? proc_close( $process ) : -1;
 
-		fclose( $pipes[1] );
-		fclose( $pipes[2] );
+		// proc_close() already closed the child's pipes. Calling fclose() on the
+		// resulting dead resource raises "TypeError: supplied resource is not a
+		// valid stream resource" on PHP 8 (seen on Windows/Local), so pipes are
+		// closed only while they are still real resources.
+		self::close_pipe( $pipes, 1 );
+		self::close_pipe( $pipes, 2 );
 
 		$result['stdout']  = $stdout;
 		$result['stderr']  = $stderr;
