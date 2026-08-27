@@ -44,6 +44,7 @@ class VVAI_Ajax {
 			'vvai_job_action',
 			'vvai_settings_save',
 			'vvai_diagnostics_recheck',
+			'vvai_ffmpeg_engine',
 			'vvai_cleanup_now',
 			'vvai_log_clear',
 			'vvai_source_upload',
@@ -395,6 +396,19 @@ class VVAI_Ajax {
 
 		update_option( VVAI_Settings::OPTION_KEY, $clean, 'yes' );
 
+		// A corrected FFmpeg path has to take effect immediately — otherwise the
+		// site owner fixes the setting, retries, and sees the same stale failure
+		// for up to five minutes (the availability cache).
+		$engine_keys = array( 'ffmpeg_path', 'ffprobe_path', 'ffmpeg_dir', 'auto_discover_binaries' );
+
+		foreach ( $engine_keys as $key ) {
+			if ( array_key_exists( $key, $input ) && (string) ( $input[ $key ] ?? '' ) !== (string) ( $stored[ $key ] ?? '' ) ) {
+				VVAI_Settings::flush_engine_caches();
+
+				break;
+			}
+		}
+
 		return array(
 			'message'  => __( 'Settings saved.', 'viral-video-ai' ),
 			'settings' => $clean,
@@ -415,6 +429,30 @@ class VVAI_Ajax {
 		set_transient( 'vvai_force_probe', 1, 60 );
 
 		return array( 'report' => $this->plugin->diagnostics()->report() );
+	}
+
+	/**
+	 * FFmpeg engine panel: status, search this server, or apply a folder.
+	 *
+	 * @return array<string,mixed>|WP_Error
+	 */
+	protected function handle_ffmpeg_engine() {
+		$mode = isset( $_POST['mode'] ) ? sanitize_key( wp_unslash( $_POST['mode'] ) ) : 'status'; // phpcs:ignore WordPress.Security.NonceVerification.Missing -- verified by the dispatcher.
+		$dir  = isset( $_POST['dir'] ) ? (string) wp_unslash( $_POST['dir'] ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Missing -- verified by the dispatcher.
+
+		if ( ! in_array( $mode, array( 'status', 'search', 'apply' ), true ) ) {
+			$mode = 'status';
+		}
+
+		$result = $this->plugin->diagnostics()->ffmpeg_engine( $mode, $dir );
+
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		$result['report'] = $this->plugin->diagnostics()->report();
+
+		return $result;
 	}
 
 	/**

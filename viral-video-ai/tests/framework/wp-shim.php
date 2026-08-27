@@ -1940,6 +1940,28 @@ class VVAI_Test_User {
  */
 class VVAI_Test_Halt extends Exception {}
 
+if ( ! function_exists( '__return_true' ) ) {
+	/**
+	 * Core stub used by REST permission callbacks.
+	 *
+	 * @return bool
+	 */
+	function __return_true() {
+		return true;
+	}
+}
+
+if ( ! function_exists( '__return_false' ) ) {
+	/**
+	 * Core stub.
+	 *
+	 * @return bool
+	 */
+	function __return_false() {
+		return false;
+	}
+}
+
 /**
  * Invoke a registered REST route the way the server would, including the
  * permission_callback — which is exactly what the security tests assert.

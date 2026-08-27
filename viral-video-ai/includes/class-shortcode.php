@@ -54,8 +54,10 @@ class VVAI_Shortcode {
 
 		$problem = $this->plugin->diagnostics()->preflight();
 
+		// A visitor does not need to read server diagnostics; the widget itself
+		// spells the fix out for whoever is allowed to act on it.
 		if ( empty( $problem['ok'] ) && ! VVAI_Permissions::can_manage() ) {
-			return $this->notice( (string) $problem['message'], 'error' );
+			return $this->notice( __( 'This site cannot render clips yet, so uploading is disabled. Please contact the site administrator.', 'viral-video-ai' ), 'error' );
 		}
 
 		$settings = $this->sanitize_atts(

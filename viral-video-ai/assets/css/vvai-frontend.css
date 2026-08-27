@@ -233,6 +233,8 @@
 .vvai-notice--error, .vvai-error { background: rgba(255, 92, 92, .08); border-color: rgba(255, 92, 92, .35); }
 .vvai-notice--info { background: var(--vvai-accent-soft); border-color: rgba(76, 141, 255, .35); }
 .vvai-notice p + p { margin-top: 8px; }
+.vvai-notice__steps { margin: 8px 0 0 18px; padding: 0; }
+.vvai-notice__steps li { margin: 4px 0; line-height: 1.5; }
 
 .vvai-error { border-radius: var(--vvai-radius); border: 1px solid; padding: 14px 16px; margin-bottom: 14px; }
 .vvai-error p { color: #ffd9d9; font-size: 13.5px; margin-top: 6px; }

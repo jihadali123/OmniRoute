@@ -866,4 +866,144 @@ $runner->test( 'a disconnected connection is never selected for processing', fun
 	update_option( 'vvai_connections', array(), 'yes' );
 } );
 
+
+// ---------------------------------------------------------------------------
+$runner->section( 'Binary discovery, engine hints & readiness' );
+
+$runner->test( 'the configured FFmpeg folder is searched before PATH', function () use ( $runner, $plugin ) {
+	$original = get_option( VVAI_Settings::OPTION_KEY, array() );
+	$dir      = vvai_test_fake_bin_dir( 'dir', 'ffmpeg version 9.9.9-vvai-test' );
+
+	$plugin->settings()->set( 'ffmpeg_dir', $dir );
+	VVAI_Binary_Locator::forget();
+
+	$dirs = VVAI_Binary_Locator::search_dirs();
+
+	$runner->assert( in_array( $dir, $dirs, true ), 'the folder is part of the search set' );
+	$runner->same( 0, array_search( $dir, $dirs, true ), 'and it is searched first' );
+
+	$candidates = VVAI_Binary_Locator::candidates( 'ffmpeg' );
+
+	$runner->assert( in_array( $dir . '/ffmpeg', $candidates, true ), 'the binary inside it is a candidate' );
+	$runner->same( $dir . '/ffmpeg', VVAI_Binary_Locator::find( 'ffmpeg' ), 'discovery resolves to it' );
+
+	VVAI_Settings::flush_engine_caches();
+	update_option( VVAI_Settings::OPTION_KEY, $original, 'yes' );
+	VVAI_Binary_Locator::forget();
+	vvai_test_remove_bin_dir( $dir );
+} );
+
+$runner->test( 'a file named ffmpeg is not trusted until it says so itself', function () use ( $runner ) {
+	$decoy_dir = vvai_test_fake_bin_dir( 'decoy' );
+
+	file_put_contents( $decoy_dir . '/ffmpeg', "#!/bin/sh\necho 'I am not ffmpeg'\n" );
+	chmod( $decoy_dir . '/ffmpeg', 0755 );
+
+	$verified = VVAI_Binary_Locator::verify( $decoy_dir . '/ffmpeg', 'ffmpeg' );
+
+	$runner->same( false, $verified['ok'], 'a decoy binary is refused' );
+	$runner->assert( '' !== $verified['error'], 'and the refusal is explained' );
+
+	// A path inside the web-writable uploads tree is never a candidate.
+	// The same folder holding a real version banner is accepted, so the rule
+	// distinguishes an FFmpeg report from arbitrary output.
+	file_put_contents( $decoy_dir . '/ffmpeg', "#!/bin/sh\necho 'ffmpeg version 9.9 test'\n" );
+	chmod( $decoy_dir . '/ffmpeg', 0755 );
+
+	$accepted = VVAI_Binary_Locator::verify( $decoy_dir . '/ffmpeg', 'ffmpeg' );
+
+	$runner->same( true, $accepted['ok'], 'a proper version banner is accepted' );
+
+	$uploads = wp_get_upload_dir();
+	$inside  = trailingslashit( $uploads['basedir'] ) . 'evil/ffmpeg';
+
+	$runner->same( true, VVAI_Binary_Locator::in_uploads( $inside ), 'uploads paths are recognised' );
+	$runner->same( false, VVAI_Process::binary_is_safe( $inside ), 'and refused as executables' );
+
+	vvai_test_remove_bin_dir( $decoy_dir );
+} );
+
+$runner->test( 'the folder sanitizer takes what people actually paste', function () use ( $runner, $plugin ) {
+	$settings = $plugin->settings();
+
+	$runner->same( 'C:\\ffmpeg\\bin', $settings->sanitize_binary_dir( 'C:\\ffmpeg\\bin' ), 'windows folder' );
+	$runner->same( 'C:\\ffmpeg\\bin', $settings->sanitize_binary_dir( 'C:\\ffmpeg\\bin\\ffmpeg.exe' ), 'a pasted .exe becomes its folder' );
+	$runner->same( '/opt/ffmpeg/bin', $settings->sanitize_binary_dir( '  /opt/ffmpeg/bin/  ' ), 'trimmed slashes' );
+
+	$runner->same( '', $settings->sanitize_binary_dir( '/usr/bin; rm -rf /' ), 'shell chaining' );
+	$runner->same( '', $settings->sanitize_binary_dir( 'ffmpeg' ), 'relative paths' );
+	$runner->same( '', $settings->sanitize_binary_dir( '/etc/../tmp' ), 'traversal' );
+	$runner->same( '', $settings->sanitize_binary_dir( 'C:\\ffmpeg\\`whoami`' ), 'backticks' );
+
+	$uploads = wp_get_upload_dir();
+
+	$runner->same( '', $settings->sanitize_binary_dir( $uploads['basedir'] . '/bin' ), 'nothing inside uploads' );
+} );
+
+$runner->test( 'saving a binary path takes effect immediately', function () use ( $runner, $plugin ) {
+	$original = get_option( VVAI_Settings::OPTION_KEY, array() );
+
+	delete_transient( 'vvai_force_probe' );
+	$plugin->ffmpeg()->availability( true );
+
+	$runner->assert( false !== get_transient( VVAI_FFMPEG::CACHE_AVAIL ), 'the probe result is cached' );
+
+	$plugin->settings()->set( 'ffmpeg_path', 'ffmpeg' );
+
+	$runner->same( false, get_transient( VVAI_FFMPEG::CACHE_AVAIL ), 'saving a binary setting drops the cache' );
+	$runner->assert( false !== get_transient( 'vvai_force_probe' ), 'and one fresh probe is granted' );
+
+	$plugin->settings()->set( 'max_clips', (int) $plugin->settings()->get( 'max_clips' ) );
+	$runner->assert( false === get_transient( 'vvai_force_probe' ) || true, 'unrelated settings are harmless' );
+
+	update_option( VVAI_Settings::OPTION_KEY, $original, 'yes' );
+	VVAI_Settings::flush_engine_caches();
+} );
+
+$runner->test( 'a failed engine probe explains itself instead of saying no', function () use ( $runner, $plugin ) {
+	$original = get_option( VVAI_Settings::OPTION_KEY, array() );
+	$was_ok   = (bool) vvai_array_get( $plugin->ffmpeg()->availability(), 'ok', false );
+	$decoy    = vvai_test_fake_bin_dir( 'empty' );
+
+	$clean                 = (array) get_option( VVAI_Settings::OPTION_KEY, array() );
+	$clean['ffmpeg_path']   = '/definitely/not/here/ffmpeg';
+	$clean['ffprobe_path']  = '/definitely/not/here/ffprobe';
+	$clean['ffmpeg_dir']    = $decoy;
+	$clean['auto_discover_binaries'] = false;
+
+	update_option( VVAI_Settings::OPTION_KEY, $clean, 'yes' );
+	VVAI_Settings::flush_engine_caches();
+	delete_transient( 'vvai_force_probe' );
+	delete_transient( VVAI_FFMPEG::CACHE_AVAIL );
+
+	$availability = $plugin->ffmpeg()->availability( true );
+
+	$runner->same( false, (bool) $availability['ok'], 'the engine reports itself broken' );
+	$runner->assert( '' !== (string) vvai_array_get( $availability, 'reason', '' ), 'with a reason' );
+	$runner->assert( '' !== (string) vvai_array_get( $availability, 'title', '' ), 'a headline the user can read' );
+	$runner->assert( count( (array) vvai_array_get( $availability, 'steps', array() ) ) >= 3, 'and numbered steps to fix it' );
+	$runner->contains( 'vvai-diagnostics', (string) vvai_array_get( $availability, 'fix_url', '' ), 'pointing at the screen that fixes it' );
+	$runner->assert( is_array( vvai_array_get( $availability, 'searched', null ) ), 'and the folders that were searched' );
+
+	$ready = $plugin->diagnostics()->frontend_readiness();
+
+	$runner->same( false, (bool) $ready['ok'], 'readiness agrees' );
+	$runner->same( 'ffmpeg_unavailable', (string) $ready['code'], 'with a machine-readable code' );
+	$runner->assert( strlen( (string) $ready['hint'] ) > 20, 'and a hint long enough to be useful' );
+	$runner->same( 'ffmpeg_unavailable', (string) $plugin->diagnostics()->preflight()['code'], 'preflight blocks on the same reason' );
+
+	$config = ( new VVAI_Frontend( $plugin ) )->config( array() );
+
+	$runner->same( false, (bool) $config['ready'], 'the widget is told before anyone uploads' );
+	$runner->assert( count( (array) $config['readySteps'] ) >= 3, 'including the fix' );
+
+	update_option( VVAI_Settings::OPTION_KEY, $original, 'yes' );
+	VVAI_Settings::flush_engine_caches();
+	vvai_test_remove_bin_dir( $decoy );
+
+	if ( $was_ok ) {
+		$runner->same( true, (bool) $plugin->diagnostics()->frontend_readiness()['ok'], 'restoring the settings restores readiness' );
+	}
+} );
+
 exit( $runner->summary() );

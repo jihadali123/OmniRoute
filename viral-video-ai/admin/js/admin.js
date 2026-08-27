@@ -499,6 +499,131 @@
 	}
 
 	// ------------------------------------------------------------------ diagnostics
+	function engineRow(row) {
+		var li = document.createElement('li');
+		var code = document.createElement('code');
+
+		code.textContent = String(row.dir || '');
+		li.appendChild(code);
+
+		var bins = row.bins || {};
+		var right = document.createElement('span');
+
+		['ffmpeg', 'ffprobe'].forEach(function (kind) {
+			var bin = bins[kind];
+
+			if (!bin) { return; }
+
+			var chip = document.createElement('span');
+
+			chip.className = bin.ok ? 'is-ready' : 'is-bad';
+			chip.textContent = (bin.ok ? bin.version || 'works' : bin.error || 'not runnable');
+			right.appendChild(chip);
+			right.appendChild(document.createTextNode(' '));
+		});
+
+		li.appendChild(right);
+
+		if (row.ok) {
+			var button = document.createElement('button');
+
+			button.type = 'button';
+			button.className = 'button button-small';
+			button.setAttribute('data-vvai-engine-apply', '');
+			button.setAttribute('data-dir', String(row.dir || ''));
+			button.textContent = 'Use this folder';
+			li.appendChild(button);
+		}
+
+		return li;
+	}
+
+	function initEnginePanel(wrap) {
+		var search = el('[data-vvai-engine-search]', wrap);
+		var state = el('[data-vvai-engine-state]', wrap);
+		var found = el('[data-vvai-engine-found]', wrap);
+
+		if (!search && !found) { return; }
+
+		function say(message) {
+			if (state) { state.textContent = message; }
+		}
+
+		function renderFound(rows) {
+			if (!found) { return; }
+
+			found.textContent = '';
+
+			if (!rows.length) {
+				var none = document.createElement('p');
+
+				none.className = 'vvai-muted';
+				none.textContent = 'Nothing that looks like FFmpeg was found on this server. Install a build (see the steps below), then search again.';
+				found.appendChild(none);
+				found.hidden = false;
+
+				return;
+			}
+
+			var title = document.createElement('h3');
+
+			title.textContent = 'Found on this server';
+			found.appendChild(title);
+
+			var list = document.createElement('ul');
+
+			list.className = 'vvai-found-list';
+
+			rows.forEach(function (row) {
+				list.appendChild(engineRow(row));
+			});
+
+			found.appendChild(list);
+			found.hidden = false;
+		}
+
+		if (search) {
+			search.addEventListener('click', function () {
+				search.disabled = true;
+				say('Searching this server…');
+
+				ajax('vvai_ffmpeg_engine', { mode: 'search' }).then(function (data) {
+					renderFound((data && data.found) || []);
+					say((data && data.message) || 'Search finished.');
+
+					if (data && data.ok) {
+						say('FFmpeg is working now — reloading…');
+						window.setTimeout(function () { location.reload(); }, 700);
+					}
+				}).catch(function (error) {
+					say(error.message || 'The search failed.');
+					search.disabled = false;
+				});
+			});
+		}
+
+		if (found) {
+			found.addEventListener('click', function (event) {
+				var target = event.target;
+
+				if (!target || !target.getAttribute || !target.getAttribute('data-vvai-engine-apply')) { return; }
+
+				var dir = target.getAttribute('data-dir') || '';
+
+				target.disabled = true;
+				say('Testing and applying ' + dir + '…');
+
+				ajax('vvai_ffmpeg_engine', { mode: 'apply', dir: dir }).then(function () {
+					say('Saved — reloading…');
+					location.reload();
+				}).catch(function (error) {
+					say(error.message || 'That folder did not work.');
+					target.disabled = false;
+				});
+			});
+		}
+	}
+
 	function initDiagnostics() {
 		var wrap = el('[data-vvai-diagnostics]');
 
@@ -520,6 +645,8 @@
 				});
 			});
 		}
+
+		initEnginePanel(wrap);
 
 		var clear = el('[data-vvai-clear-log]', wrap);
 

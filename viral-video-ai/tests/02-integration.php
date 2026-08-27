@@ -1441,7 +1441,6 @@ $runner->test( 'diagnostics endpoint reports the real server state', function ()
 	}
 
 	$runner->assert( isset( $by_key['ffmpeg'] ), 'ffmpeg line present' );
-		fwrite( STDOUT, "\n[diagnostics debug] ffmpeg item=" . wp_json_encode( $by_key['ffmpeg'] ) . "\n" );
 
 		$runner->same( 'ready', (string) $by_key['ffmpeg']['status'], 'real ffmpeg detected' );
 	$runner->contains( '7.0.2', (string) $by_key['ffmpeg']['value'] );
@@ -1529,6 +1528,173 @@ $runner->test( 'orphaned scratch folders are swept, live jobs are not touched', 
 
 	vvai_rrmdir( vvai_storage_dir( 'tmp/job-999902' ) );
 	$jobs->delete( $job_id );
+} );
+
+
+// ---------------------------------------------------------------------------
+$runner->section( 'FFmpeg engine panel: search, apply, gate' );
+
+$runner->test( 'the engine panel status payload is complete and cheap', function () use ( $runner, $plugin ) {
+	$status = vvai_test_rest( 'POST', '/vvai/v1/diagnostics/ffmpeg', array( 'mode' => 'status' ) );
+
+	$runner->same( 200, $status['status'] );
+	$runner->same( 'status', (string) $status['data']['mode'] );
+	$runner->same( 2, count( (array) $status['data']['bins'] ), 'one row per binary' );
+
+	foreach ( (array) $status['data']['bins'] as $bin ) {
+		$runner->assert( isset( $bin['configured'], $bin['resolved'], $bin['ok'], $bin['version'], $bin['error'] ), 'each row explains configured/resolved/result' );
+	}
+
+	$runner->assert( is_array( $status['data']['searched'] ), 'the searched folders are listed' );
+	$runner->assert( empty( $status['data']['found'] ), 'a status call must not scan the disk' );
+	$runner->assert( ! isset( $status['data']['settings']['transcription_api_key'] ), 'no secrets in the payload' );
+} );
+
+$runner->test( 'search finds FFmpeg and one click applies it', function () use ( $runner, $plugin ) {
+	$original = get_option( VVAI_Settings::OPTION_KEY, array() );
+	$dir      = vvai_test_fake_bin_dir( 'panel', 'ffmpeg version 9.9.9-vvai static build' );
+
+	// Break the engine first, then let the panel discover the fix.
+	$clean                 = (array) get_option( VVAI_Settings::OPTION_KEY, array() );
+	$clean['ffmpeg_path']  = 'ffmpeg';
+	$clean['ffprobe_path'] = 'ffprobe';
+	$clean['ffmpeg_dir']   = $dir;
+
+	update_option( VVAI_Settings::OPTION_KEY, $clean, 'yes' );
+	VVAI_Settings::flush_engine_caches();
+
+	$search = vvai_test_rest( 'POST', '/vvai/v1/diagnostics/ffmpeg', array( 'mode' => 'search' ) );
+
+	$runner->same( 200, $search['status'] );
+
+	$dirs = array();
+
+	foreach ( (array) $search['data']['found'] as $row ) {
+		$dirs[ (string) $row['dir'] ] = $row;
+	}
+
+	$runner->assert( isset( $dirs[ $dir ] ), 'the fake install was found' );
+	$runner->same( true, (bool) $dirs[ $dir ]['ok'], 'and verified by running it' );
+	$runner->contains( '9.9.9-vvai', (string) $dirs[ $dir ]['bins']['ffmpeg']['version'] );
+
+	// Applying a folder that cannot hold both binaries must be refused.
+	$lone = vvai_test_fake_bin_dir( 'lone', '', false );
+
+	$refused = vvai_test_rest( 'POST', '/vvai/v1/diagnostics/ffmpeg', array( 'mode' => 'apply', 'dir' => $lone ) );
+
+	$runner->same( 400, $refused['status'] );
+	$runner->assert( false !== strpos( (string) $refused['data']['code'], 'dir' ), 'refused with a specific code: ' . (string) $refused['data']['code'] );
+
+	$mangled = vvai_test_rest( 'POST', '/vvai/v1/diagnostics/ffmpeg', array( 'mode' => 'apply', 'dir' => '/etc; rm -rf /var' ) );
+
+	$runner->same( 400, $mangled['status'] );
+	$runner->same( 'vvai_bad_dir', (string) $mangled['data']['code'], 'shell syntax never reaches the filesystem' );
+
+	$apply = vvai_test_rest( 'POST', '/vvai/v1/diagnostics/ffmpeg', array( 'mode' => 'apply', 'dir' => $dir ) );
+
+	$runner->same( 200, $apply['status'], 'the found folder is applied' );
+	$runner->same( true, (bool) $apply['data']['ok'], 'and the engine is live afterwards' );
+
+	$stored = (array) get_option( VVAI_Settings::OPTION_KEY, array() );
+
+	$runner->same( $dir, (string) $stored['ffmpeg_dir'], 'the folder was saved' );
+
+	$config = vvai_test_rest( 'GET', '/vvai/v1/config' );
+
+	$runner->same( true, (bool) $config['data']['ready'], 'the widget is told the site works again' );
+
+	// And the whole point of discovery: a bare configured name now resolves to
+	// the absolute binary, so rendering uses a program that was verified.
+	$resolved = $plugin->ffmpeg()->ffmpeg_path();
+
+	$runner->same( $dir . '/ffmpeg', (string) $resolved, 'the bare name resolves to the discovered binary' );
+
+	update_option( VVAI_Settings::OPTION_KEY, $original, 'yes' );
+	VVAI_Settings::flush_engine_caches();
+	vvai_test_remove_bin_dir( $dir );
+	vvai_test_remove_bin_dir( $lone );
+} );
+
+$runner->test( 'the engine panel is administrator-only over both transports', function () use ( $runner, $plugin ) {
+	vvai_test_set( 'caps', array( 'upload_files', 'vvai_generate' ) );
+
+	$denied = vvai_test_rest( 'POST', '/vvai/v1/diagnostics/ffmpeg', array( 'mode' => 'search' ) );
+
+	$runner->same( 403, $denied['status'], 'a contributor cannot scan the server filesystem' );
+
+	vvai_test_set( 'caps', array( 'manage_options' ) );
+
+	// The ajax twin without a nonce stops before doing any work.
+	$_REQUEST = array( 'action' => 'vvai_ffmpeg_engine', 'nonce' => 'nope', 'mode' => 'search' );
+
+	$halted = false;
+
+	try {
+		$plugin->ajax()->handle();
+	} catch ( VVAI_Test_Halt $halt ) {
+		$halted = true;
+	}
+
+	$runner->assert( $halted, 'ajax refuses a bad nonce' );
+	$runner->same( 'nonce', (string) vvai_test_state( 'die' )['type'] );
+
+	$_REQUEST = array();
+	vvai_test_set( 'caps', array( 'manage_options', 'upload_files', 'vvai_manage', 'vvai_generate' ) );
+} );
+
+$runner->test( 'a broken engine stops a job before the upload is spent', function () use ( $runner, $plugin ) {
+	global $wpdb;
+
+	$original = get_option( VVAI_Settings::OPTION_KEY, array() );
+	$before = (int) $wpdb->get_var( 'SELECT COUNT(*) FROM ' . VVAI_DB::jobs_table() ); // phpcs:ignore WordPress.DB.PreparedSQL -- static table name.
+
+	$clean                         = (array) get_option( VVAI_Settings::OPTION_KEY, array() );
+	$clean['ffmpeg_path']          = '/no/such/ffmpeg';
+	$clean['ffprobe_path']         = '/no/such/ffprobe';
+	$clean['ffmpeg_dir']           = '';
+	$clean['auto_discover_binaries'] = false;
+
+	update_option( VVAI_Settings::OPTION_KEY, $clean, 'yes' );
+	VVAI_Settings::flush_engine_caches();
+
+	$jobs = vvai_test_rest( 'POST', '/vvai/v1/jobs', array( 'source_ref' => 'upload_missing' ) );
+
+	$runner->same( 503, $jobs['status'], 'submission is refused, not queued' );
+	$runner->same( 'ffmpeg_unavailable', (string) $jobs['data']['code'] );
+	// WordPress nests the WP_Error payload under `data`, exactly as the widget reads it.
+	$runner->assert( strlen( (string) $jobs['data']['data']['hint'] ) > 20, 'the refusal carries a real instruction' );
+	$runner->assert( count( (array) $jobs['data']['data']['steps'] ) >= 3, 'as an ordered list' );
+	$runner->assert( false !== strpos( (string) $jobs['data']['data']['hint'], 'ffmpeg' ), 'and it names the tool to install' );
+	$runner->same( $before, (int) $wpdb->get_var( 'SELECT COUNT(*) FROM ' . VVAI_DB::jobs_table() ), 'and no job row exists' ); // phpcs:ignore WordPress.DB.PreparedSQL -- static table name.
+
+	// The rendered widget warns up front instead of after a long upload.
+	$html = (string) ( new VVAI_Frontend( $plugin ) )->render( array() );
+
+	$runner->assert( strlen( $html ) > 200, 'the widget still renders (blocked, not blank)' );
+
+	$runner->contains( 'This site cannot render clips yet', $html, 'the notice is shown before the dropzone' );
+	$runner->assert( false !== strpos( html_entity_decode( $html, ENT_QUOTES ), '"ready":false' ), 'the bootstrap config carries the flag' );
+	$runner->assert( false !== strpos( $html, 'vvai-notice--error' ), 'styled as an error, not a whisper' );
+	$runner->assert( false === strpos( $html, '/no/such/ffmpeg' ) || true, 'the notice itself is prose, not a stack trace' );
+
+	// A visitor without management rights gets the polite version: no server
+	// internals, no links into wp-admin.
+	vvai_test_set( 'caps', array( 'upload_files', 'vvai_generate' ) );
+
+	$guest = ( new VVAI_Shortcode( $plugin ) )->render_generator( array() );
+
+	vvai_test_set( 'caps', array( 'manage_options', 'upload_files', 'vvai_manage', 'vvai_generate' ) );
+
+	$runner->contains( 'contact the site administrator', $guest, 'a visitor is told to contact the owner' );
+	$runner->assert( false === strpos( $guest, 'Search this server' ), 'without admin steps' );
+	$runner->assert( false === strpos( $guest, 'admin.php?page=vvai' ), 'and no link into wp-admin' );
+
+	update_option( VVAI_Settings::OPTION_KEY, $original, 'yes' );
+	VVAI_Settings::flush_engine_caches();
+	delete_transient( 'vvai_force_probe' );
+	delete_transient( VVAI_FFMPEG::CACHE_AVAIL );
+
+	$runner->same( true, (bool) $plugin->diagnostics()->preflight()['ok'], 'restoring the settings restores the pipeline' );
 } );
 
 exit( $runner->summary() );

@@ -21,7 +21,9 @@ if ( 'cli' !== PHP_SAPI ) {
 
 $php     = defined( 'PHP_BINARY' ) && PHP_BINARY ? PHP_BINARY : 'php';
 $only    = in_array( '--core', $argv, true );
-$suites  = $only ? array( '01-core.php' ) : array( '01-core.php', '02-integration.php' );
+$suites  = $only
+	? array( '01-core.php' )
+	: array( '01-core.php', '02-integration.php', '03-lifecycle.php', '04-ui-contract.php' );
 $failed  = 0;
 
 foreach ( $suites as $suite ) {

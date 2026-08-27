@@ -106,7 +106,7 @@ class VVAI_Process {
 			if ( function_exists( 'proc_open' ) && ! vvai_function_disabled( 'proc_open' ) ) {
 				$result = self::run_with_proc_open( $argv, $args, $timeout, $result );
 			} elseif ( function_exists( 'exec' ) && ! vvai_function_disabled( 'exec' ) ) {
-				$result = self::run_with_exec( $argv, $timeout, $result );
+				$result = self::run_with_exec( $argv, $timeout, $result, $args );
 			} else {
 				$result['error'] = __( 'This server does not allow PHP to run external commands (proc_open and exec are disabled).', 'viral-video-ai' );
 			}
@@ -205,7 +205,28 @@ class VVAI_Process {
 	}
 
 	/**
-	 * Resolve an absolute path for a binary name using PATH.
+	 * Is this an absolute path (POSIX or Windows)?
+	 *
+	 * @param string $path Path.
+	 * @return bool
+	 */
+	public static function is_absolute( $path ) {
+		$path = (string) $path;
+
+		return 0 === strpos( $path, '/' ) || 0 === strpos( $path, '\\' ) || (bool) preg_match( '#^[A-Za-z]:[\\\\/]#', $path );
+	}
+
+	/**
+	 * Resolve an absolute path for a binary name using PATH and the usual
+	 * install locations.
+	 *
+	 * A bare name is only useful to PHP if PHP can actually see it: the PATH of
+	 * a web server process regularly differs from the PATH of the terminal that
+	 * installed the tool (Windows services, php-fpm with clear_env, Local by
+	 * Flywheel). Discovery therefore asks VVAI_Binary_Locator, which scans PATH
+	 * *plus* the conventional install folders and caches the answer. When
+	 * nothing is found the original name is returned unchanged, so the shell
+	 * still gets a chance to resolve it.
 	 *
 	 * @param string $binary Name or path.
 	 * @return string Absolute path, or the original value when unresolvable.
@@ -217,30 +238,21 @@ class VVAI_Process {
 			return '';
 		}
 
-		if ( 0 === strpos( $binary, '/' ) || preg_match( '#^[A-Za-z]:[\\\\/]#', $binary ) ) {
+		if ( self::is_absolute( $binary ) ) {
 			return $binary;
 		}
 
-		$paths = array_filter( array_merge(
-			array( '/usr/local/bin', '/usr/bin', '/bin', '/usr/local/sbin', '/usr/sbin', '/sbin', '/opt/homebrew/bin' ),
-			array_filter( explode( PATH_SEPARATOR, (string) getenv( 'PATH' ) ) )
-		) );
+		$bare = preg_replace( '/[^A-Za-z0-9._-]/', '', $binary );
 
-		foreach ( $paths as $dir ) {
-			$candidate = rtrim( $dir, '/' ) . '/' . $binary;
+		if ( '' === $bare ) {
+			return $binary;
+		}
 
-			if ( is_file( $candidate ) && is_executable( $candidate ) ) {
-				return $candidate;
-			}
+		if ( class_exists( 'VVAI_Binary_Locator' ) ) {
+			$found = VVAI_Binary_Locator::find( $bare );
 
-			if ( 'WIN' !== strtoupper( substr( PHP_OS, 0, 3 ) ) ) {
-				continue;
-			}
-
-			foreach ( array( '.exe', '.bat' ) as $suffix ) {
-				if ( is_file( $candidate . $suffix ) ) {
-					return $candidate . $suffix;
-				}
+			if ( '' !== $found ) {
+				return $found;
 			}
 		}
 
@@ -294,6 +306,107 @@ class VVAI_Process {
 	}
 
 	/**
+	 * Working directory + environment for the child process.
+	 *
+	 * Shared FFmpeg builds (the default `ffmpeg.exe` in most Windows archives)
+	 * load their sibling DLLs relative to the *current directory*, and some
+	 * hosts start PHP with a PATH that does not contain the tool folder at all.
+	 * Running the binary from its own directory with that directory prepended to
+	 * PATH fixes both without weakening anything: the argv is still built from a
+	 * validated absolute path.
+	 *
+	 * @param string[] $argv argv.
+	 * @param array    $args Options.
+	 * @return array{0:?string,1:?array<string,string>}
+	 */
+	private static function spawn_context( array $argv, array $args ) {
+		$cwd = isset( $args['cwd'] ) && is_dir( (string) $args['cwd'] ) ? (string) $args['cwd'] : null;
+		$env = ! empty( $args['env'] ) && is_array( $args['env'] ) ? $args['env'] : null;
+
+		if ( null === $cwd ) {
+			$binary = isset( $argv[0] ) ? (string) $argv[0] : '';
+
+			if ( '' !== $binary && self::is_absolute( $binary ) ) {
+				$dir = dirname( str_replace( '\\', '/', $binary ) );
+
+				if ( '' !== $dir && '.' !== $dir && is_dir( $dir ) ) {
+					$cwd = $dir;
+				}
+			}
+		}
+
+		if ( null === $env && null !== $cwd ) {
+			$env = self::child_env( $cwd );
+		}
+
+		return array( $cwd, $env );
+	}
+
+	/**
+	 * Environment for a child process: the parent's, with the tool folder first.
+	 *
+	 * proc_open() replaces the whole environment when an array is given, so the
+	 * inherited values must be copied explicitly — a child without SystemRoot or
+	 * TEMP cannot even start on Windows.
+	 *
+	 * @param string $dir Directory to prepend to PATH.
+	 * @return array<string,string>
+	 */
+	private static function child_env( $dir ) {
+		$env = array();
+
+		$inherited = getenv();
+
+		if ( is_array( $inherited ) ) {
+			foreach ( $inherited as $key => $value ) {
+				if ( is_string( $key ) && is_scalar( $value ) ) {
+					$env[ $key ] = (string) $value;
+				}
+			}
+		}
+
+		if ( ! $env && is_array( $_ENV ) ) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- environment passthrough.
+			foreach ( $_ENV as $key => $value ) {
+				if ( is_string( $key ) && is_scalar( $value ) ) {
+					$env[ $key ] = (string) $value;
+				}
+			}
+		}
+
+		$path = isset( $env['PATH'] ) ? (string) $env['PATH'] : (string) getenv( 'PATH' );
+
+		if ( '' === $path || false === strpos( $path, $dir ) ) {
+			$path = '' === $path ? $dir : $dir . PATH_SEPARATOR . $path;
+		}
+
+		$env['PATH'] = $path;
+
+		if ( class_exists( 'VVAI_Binary_Locator' ) && VVAI_Binary_Locator::is_windows() ) {
+			foreach ( array( 'SystemRoot', 'windir', 'COMSPEC', 'TEMP', 'TMP' ) as $key ) {
+				if ( empty( $env[ $key ] ) ) {
+					$value = getenv( $key );
+
+					if ( is_string( $value ) && '' !== $value ) {
+						$env[ $key ] = $value;
+					}
+				}
+			}
+
+			if ( empty( $env['SystemRoot'] ) && is_dir( 'C:\\Windows' ) ) {
+				$env['SystemRoot'] = 'C:\\Windows';
+			}
+		}
+
+		/**
+		 * Filter the environment handed to a child process.
+		 *
+		 * @param array  $env Environment map.
+		 * @param string $dir Tool directory.
+		 */
+		return (array) apply_filters( 'vvai_process_env', $env, $dir );
+	}
+
+	/**
 	 * proc_open based runner with separated stdout/stderr and a real timeout.
 	 *
 	 * @param string[] $argv    argv.
@@ -309,12 +422,12 @@ class VVAI_Process {
 			2 => array( 'pipe', 'w' ),
 		);
 
-		$env = ! empty( $args['env'] ) && is_array( $args['env'] ) ? $args['env'] : null;
+		list( $cwd, $env ) = self::spawn_context( $argv, $args );
 
 		$pipes = array();
 
 		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.system_calls_proc_open -- this class is the audited place where it happens.
-		$process = @proc_open( $result['command'], $descriptors, $pipes, isset( $args['cwd'] ) ? $args['cwd'] : null, $env );
+		$process = @proc_open( $result['command'], $descriptors, $pipes, $cwd, $env );
 
 		if ( ! is_resource( $process ) ) {
 			$result['error'] = __( 'The server refused to start the process.', 'viral-video-ai' );
@@ -431,10 +544,21 @@ class VVAI_Process {
 	 * @param string[] $argv    argv.
 	 * @param int      $timeout Timeout in seconds.
 	 * @param array    $result  Result skeleton.
+	 * @param array    $args    Options (cwd is honoured here as a `cd` prefix).
 	 * @return array
 	 */
-	private static function run_with_exec( array $argv, $timeout, array $result ) {
+	private static function run_with_exec( array $argv, $timeout, array $result, array $args = array() ) {
 		$command = $result['command'] . ' 2>&1';
+
+		// Same reasoning as spawn_context(): run the tool from its own folder so
+		// a shared build finds its sibling DLLs even when PATH is short.
+		list( $cwd ) = self::spawn_context( $argv, $args );
+
+		if ( null !== $cwd ) {
+			$windows  = class_exists( 'VVAI_Binary_Locator' ) && VVAI_Binary_Locator::is_windows();
+			$prefix   = $windows ? 'cd /d ' : 'cd ';
+			$command  = $prefix . vvai_shell_arg( $cwd ) . ' && ' . $command;
+		}
 		$output  = array();
 		$code    = 1;
 

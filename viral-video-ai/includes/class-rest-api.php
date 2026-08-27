@@ -315,6 +315,20 @@ class VVAI_Rest_Api {
 
 		register_rest_route(
 			VVAI_REST_NAMESPACE,
+			'/diagnostics/ffmpeg',
+			array(
+				'methods'             => 'POST',
+				'callback'            => $this->guard( 'route_ffmpeg_engine' ),
+				'permission_callback' => $manage,
+				'args'                => array(
+					'mode' => array( 'sanitize_callback' => 'sanitize_key' ),
+					'dir'  => array( 'sanitize_callback' => 'sanitize_text_field' ),
+				),
+			)
+		);
+
+		register_rest_route(
+			VVAI_REST_NAMESPACE,
 			'/settings',
 			array(
 				array(
@@ -1039,7 +1053,12 @@ class VVAI_Rest_Api {
 			return new WP_Error(
 				(string) $preflight['code'],
 				(string) $preflight['message'],
-				array( 'status' => 503 )
+				array(
+					'status' => 503,
+					'hint'   => (string) vvai_array_get( $preflight, 'hint', '' ),
+					'steps'  => (array) vvai_array_get( $preflight, 'steps', array() ),
+					'fixUrl' => (string) vvai_array_get( $preflight, 'fixUrl', '' ),
+				)
 			);
 		}
 
@@ -1354,6 +1373,27 @@ class VVAI_Rest_Api {
 	}
 
 	/**
+	 * POST /diagnostics/ffmpeg — status / search this server / apply a folder.
+	 *
+	 * @param WP_REST_Request $request Request.
+	 * @return array<string,mixed>|WP_Error
+	 */
+	public function route_ffmpeg_engine( $request ) {
+		$mode = (string) $request->get_param( 'mode' );
+		$dir  = (string) $request->get_param( 'dir' );
+
+		$result = $this->plugin->diagnostics()->ffmpeg_engine( '' === $mode ? 'status' : $mode, $dir );
+
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		$result['report'] = $this->plugin->diagnostics()->report();
+
+		return $result;
+	}
+
+	/**
 	 * GET /settings (secrets excluded).
 	 *
 	 * @return array<string,mixed>
@@ -1419,9 +1459,23 @@ class VVAI_Rest_Api {
 
 		$active = $this->plugin->router()->get_active_connection();
 
+		$readiness = array( 'ok' => true, 'code' => '', 'message' => '', 'hint' => '', 'steps' => array(), 'fixUrl' => '' );
+
+		try {
+			$readiness = (array) $this->plugin->diagnostics()->frontend_readiness();
+		} catch ( \Throwable $throwable ) {
+			$readiness['ok'] = false;
+		}
+
 		return array(
 			'version'        => VVAI_VERSION,
 			'hasConnection'  => (bool) $active,
+			'ready'          => ! empty( $readiness['ok'] ),
+			'readyCode'      => (string) vvai_array_get( $readiness, 'code', '' ),
+			'readyMessage'   => (string) vvai_array_get( $readiness, 'message', '' ),
+			'readyHint'      => (string) vvai_array_get( $readiness, 'hint', '' ),
+			'readySteps'     => array_values( array_map( 'strval', (array) vvai_array_get( $readiness, 'steps', array() ) ) ),
+			'readyFixUrl'    => VVAI_Permissions::can_manage() ? (string) vvai_array_get( $readiness, 'fixUrl', '' ) : '',
 			'connectionError' => $this->plugin->router()->connection_problem(),
 			'connections'    => $connections,
 			'requireLogin'   => (bool) $settings->get( 'require_login' ),

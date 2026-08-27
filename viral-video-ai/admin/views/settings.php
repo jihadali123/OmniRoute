@@ -66,8 +66,14 @@ $vvai_sections = array(
 	array(
 		'title'  => __( 'Server & rendering', 'viral-video-ai' ),
 		'fields' => array(
-			array( 'ffmpeg_path', __( 'FFmpeg path', 'viral-video-ai' ), 'text', array( 'placeholder' => 'ffmpeg' ) ),
-			array( 'ffprobe_path', __( 'FFprobe path', 'viral-video-ai' ), 'text', array( 'placeholder' => 'ffprobe' ) ),
+			array( 'ffmpeg_dir', __( 'FFmpeg folder', 'viral-video-ai' ), 'text', array(
+				'placeholder' => 'C:\\ffmpeg\\bin',
+				/* translators: %s: screen name. */
+				'hint'        => sprintf( __( 'The folder that contains ffmpeg and ffprobe — one value for both binaries. Leave blank to use PATH. Diagnostics has a "Search this server" button that finds and applies it. See %s for per-platform steps.', 'viral-video-ai' ), 'Viral Video AI → Diagnostics' ),
+			) ),
+			array( 'auto_discover_binaries', __( 'Look for FFmpeg in the usual install folders when PATH does not find it', 'viral-video-ai' ), 'checkbox', array( 'hint' => __( 'Recommended. Web server processes often do not inherit the PATH you see in a terminal, so this is what makes a normal Windows/macOS install work without typing paths.', 'viral-video-ai' ) ) ),
+			array( 'ffmpeg_path', __( 'FFmpeg path (override)', 'viral-video-ai' ), 'text', array( 'placeholder' => 'ffmpeg', 'hint' => __( 'Only set this to force a specific executable; an absolute path wins over the folder above.', 'viral-video-ai' ) ) ),
+			array( 'ffprobe_path', __( 'FFprobe path (override)', 'viral-video-ai' ), 'text', array( 'placeholder' => 'ffprobe' ) ),
 			array( 'max_upload_mb', __( 'Maximum upload (MB - 0 means no limit)', 'viral-video-ai' ), 'number', array( 'min' => 0, 'max' => 2621440, 'hint' => sprintf( /* translators: %s: size. */ __( 'Videos arrive in chunks, so only one chunk has to fit the PHP limits. Current ceiling: %s. Set 0 for no cap.', 'viral-video-ai' ), size_format( (int) $limits['effective'] ) ) ) ),
 			array( 'upload_chunk_size', __( 'Upload chunk size (bytes)', 'viral-video-ai' ), 'number', array( 'min' => 262144, 'max' => 33554432, 'step' => 65536 ) ),
 			array( 'process_timeout', __( 'FFmpeg / API timeout (seconds)', 'viral-video-ai' ), 'number', array( 'min' => 30, 'max' => 14400 ) ),

@@ -52,6 +52,11 @@ class VVAI_Settings {
 			// Binaries & server.
 			'ffmpeg_path'              => 'ffmpeg',
 			'ffprobe_path'             => 'ffprobe',
+			// A folder containing ffmpeg[.exe] + ffprobe[.exe]. Easier and far
+			// less error-prone than two absolute file paths, and the shape a
+			// Windows user gets after unzipping a static build.
+			'ffmpeg_dir'               => '',
+			'auto_discover_binaries'   => true,
 			'ffmpeg_extra_args'        => '',
 			'process_timeout'          => 900,
 			'max_execution_budget'     => 25,
@@ -178,7 +183,13 @@ class VVAI_Settings {
 
 		$this->overrides = array();
 
-		return update_option( self::OPTION_KEY, $sanitized, 'yes' );
+		update_option( self::OPTION_KEY, $sanitized, 'yes' );
+
+		if ( in_array( $key, array( 'ffmpeg_path', 'ffprobe_path', 'ffmpeg_dir', 'auto_discover_binaries' ), true ) ) {
+			self::flush_engine_caches();
+		}
+
+		return true;
 	}
 
 	/**
@@ -270,6 +281,7 @@ class VVAI_Settings {
 			case 'burn_captions':
 			case 'generate_srt':
 			case 'allow_upscale':
+			case 'auto_discover_binaries':
 				return vvai_sanitize_bool( $value );
 
 			case 'temperature':
@@ -304,6 +316,9 @@ class VVAI_Settings {
 			case 'ffmpeg_path':
 			case 'ffprobe_path':
 				return $this->sanitize_binary_path( $value, $default );
+
+			case 'ffmpeg_dir':
+				return $this->sanitize_binary_dir( $value );
 
 			case 'ffmpeg_extra_args':
 				return $this->sanitize_extra_args( $value );
@@ -412,6 +427,91 @@ class VVAI_Settings {
 		}
 
 		return $value;
+	}
+
+	/**
+	 * Sanitize a folder that contains the FFmpeg binaries.
+	 *
+	 * A path pointing straight at ffmpeg.exe is accepted too and shortened to
+	 * its parent, because that is what people paste.
+	 *
+	 * @param mixed $value Value.
+	 * @return string Absolute folder path or ''.
+	 */
+	public function sanitize_binary_dir( $value ) {
+		$value = trim( (string) $value, " \t\n\r\0\x0B\"\"" );
+
+		if ( '' === $value ) {
+			return '';
+		}
+
+		if ( preg_match( '/[;&|`$><\n\r]/', $value ) || false !== strpos( $value, '"' ) || false !== strpos( $value, "'" ) ) {
+			return '';
+		}
+
+		$windows = (bool) preg_match( '#^[A-Za-z]:[\\\\/]#', $value );
+		$unix    = 0 === strpos( $value, '/' );
+
+		if ( $windows ) {
+			if ( ! preg_match( '#^[A-Za-z]:[\\\\/][A-Za-z0-9 ._+~()\\\\/-]*$#', $value ) ) {
+				return '';
+			}
+		} elseif ( $unix ) {
+			if ( ! preg_match( '#^/[A-Za-z0-9 ._+~()/-]*$#', $value ) ) {
+				return '';
+			}
+		} else {
+			return '';
+		}
+
+		if ( false !== strpos( str_replace( '\\', '/', $value ), '..' ) ) {
+			return '';
+		}
+
+		// Paste protection: a full binary path becomes its folder.
+		$base = strtolower( basename( str_replace( '\\', '/', $value ) ) );
+
+		if ( preg_match( '/^ffmpeg\.(exe|bat|cmd)$/', $base ) || preg_match( '/^(ffprobe|whisper)\.(exe|bat|cmd)$/', $base ) ) {
+			$value = rtrim( preg_replace( '#[\\\\/][^\\\\/]*$#', '', $value ), '\\/ ' );
+		}
+
+		$value = rtrim( $value, '\\/ ' );
+
+		if ( '' === $value ) {
+			return '';
+		}
+
+		// Nothing executable may live inside the web-writable uploads tree.
+		$uploads = wp_get_upload_dir();
+
+		if ( ! empty( $uploads['basedir'] ) ) {
+			$base_dir = trailingslashit( wp_normalize_path( (string) $uploads['basedir'] ) );
+
+			if ( 0 === strpos( trailingslashit( wp_normalize_path( $value ) ), $base_dir ) ) {
+				return '';
+			}
+		}
+
+		return $value;
+	}
+
+	/**
+	 * Forget every cached answer about FFmpeg availability.
+	 *
+	 * Without this a corrected path appears to do nothing for up to five
+	 * minutes, which reads as "the plugin ignores my settings".
+	 */
+	public static function flush_engine_caches() {
+		delete_transient( class_exists( 'VVAI_FFMPEG' ) ? VVAI_FFMPEG::CACHE_AVAIL : 'vvai_ffmpeg_availability' );
+		delete_transient( 'vvai_loopback_check' );
+		delete_transient( 'vvai_rest_reachable' );
+
+		if ( class_exists( 'VVAI_Binary_Locator' ) ) {
+			VVAI_Binary_Locator::forget();
+		}
+
+		// Grants exactly one uncached probe, consumed by availability().
+		set_transient( 'vvai_force_probe', 1, 120 );
 	}
 
 	/**

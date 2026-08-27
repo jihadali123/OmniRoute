@@ -72,3 +72,16 @@
 .vvai-submit{margin-top:8px}
 .vvai-empty-inline{color:var(--vvai-muted);font-size:13px}
 @media screen and (max-width:782px){.vvai-wrap .vvai-columns{grid-template-columns:1fr}}
+.vvai-engine__bins code,.vvai-found-list code{background:#f4f6f8;padding:1px 5px;border-radius:4px;word-break:break-all;font-size:12px}
+.vvai-engine__actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:14px 0 4px}
+.vvai-engine__found{margin-top:10px}
+.vvai-found-list{list-style:none;margin:0;padding:0}
+.vvai-found-list li{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--vvai-line);font-size:13px}
+.vvai-found-list li:last-child{border-bottom:0}
+.vvai-found-list .is-ready{color:var(--vvai-ok);font-size:12px}
+.vvai-found-list .is-bad{color:var(--vvai-bad);font-size:12px}
+.vvai-steps{margin:0 0 0 20px;padding:0}
+.vvai-steps li{margin:6px 0;font-size:13px;line-height:1.5}
+.vvai-details{margin-top:14px}
+.vvai-details summary{cursor:pointer;font-size:13px;color:var(--vvai-accent)}
+.vvai-dir-list{margin:6px 0 0 18px;padding:0;font-size:12px}

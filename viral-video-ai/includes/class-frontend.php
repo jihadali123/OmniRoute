@@ -96,6 +96,17 @@ class VVAI_Frontend {
 		$aspect  = (string) vvai_array_get( $settings, 'aspect_ratio', $settings_service->get( 'default_aspect_ratio' ) );
 		$quality = (string) vvai_array_get( $settings, 'quality', $settings_service->get( 'default_quality' ) );
 
+		// Told before the visitor picks a file, so nobody uploads a feature film
+		// into a site that cannot render a single frame of it.
+		$readiness = array( 'ok' => true, 'code' => '', 'message' => '', 'hint' => '', 'steps' => array(), 'fixUrl' => '' );
+
+		try {
+			$readiness = (array) $this->plugin->diagnostics()->frontend_readiness();
+		} catch ( \Throwable $throwable ) {
+			// Readiness reporting must never break the widget; the job endpoint
+			// validates the same things again.
+		}
+
 		$config = array(
 			'restUrl'        => esc_url_raw( rest_url( VVAI_REST_NAMESPACE ) ),
 			'ajaxUrl'        => esc_url_raw( admin_url( 'admin-ajax.php' ) ),
@@ -105,6 +116,12 @@ class VVAI_Frontend {
 			'canSubmit'      => VVAI_Permissions::can_create_job(),
 			'requireLogin'   => (bool) $settings_service->get( 'require_login' ),
 			'hasConnection'  => (bool) $active,
+			'ready'          => ! empty( $readiness['ok'] ),
+			'readyCode'      => (string) vvai_array_get( $readiness, 'code', '' ),
+			'readyMessage'   => (string) vvai_array_get( $readiness, 'message', '' ),
+			'readyHint'      => (string) vvai_array_get( $readiness, 'hint', '' ),
+			'readySteps'     => array_values( array_map( 'strval', (array) vvai_array_get( $readiness, 'steps', array() ) ) ),
+			'readyFixUrl'    => VVAI_Permissions::can_manage() ? (string) vvai_array_get( $readiness, 'fixUrl', '' ) : '',
 			'connectionError' => $router->connection_problem( (string) vvai_array_get( $settings, 'connection_id', '' ) ),
 			'connections'    => $connections,
 			'autoStart'      => (bool) $settings_service->get( 'auto_start_job' ),

@@ -196,6 +196,57 @@ function vvai_test_configure( array $settings = array() ) {
 /**
  * Tiny assertion framework with a summary, so `exit code` reflects reality.
  */
+/**
+ * Create a throwaway folder holding pretend FFmpeg binaries.
+ *
+ * The files are real shell scripts (the exec bridge runs them), so discovery,
+ * verification and probing are all exercised against actual process output
+ * instead of a mocked return value.
+ *
+ * @param string $tag        Name suffix (keeps parallel runs apart).
+ * @param string $banner     Banner the fake ffmpeg should print for -version.
+ * @param bool   $with_probe Whether to write an ffprobe twin as well.
+ * @return string Absolute folder path.
+ */
+function vvai_test_fake_bin_dir( $tag, $banner = '', $with_probe = true ) {
+	$dir = sys_get_temp_dir() . '/vvai-' . $tag . '-' . substr( md5( uniqid( (string) microtime( true ), true ) ), 0, 8 );
+
+	@mkdir( $dir, 0777, true );
+
+	if ( '' !== $banner ) {
+		$script = "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo \"" . $banner . "\"; exit 0; fi\nexit 1\n";
+
+		file_put_contents( $dir . '/ffmpeg', $script );
+		chmod( $dir . '/ffmpeg', 0755 );
+
+		if ( $with_probe ) {
+			$probe = "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo \"" . str_replace( 'ffmpeg', 'ffprobe', $banner ) . "\"; exit 0; fi\nexit 1\n";
+
+			file_put_contents( $dir . '/ffprobe', $probe );
+			chmod( $dir . '/ffprobe', 0755 );
+		}
+	}
+
+	return $dir;
+}
+
+/**
+ * Delete a folder produced by vvai_test_fake_bin_dir().
+ *
+ * @param string $dir Path.
+ */
+function vvai_test_remove_bin_dir( $dir ) {
+	foreach ( (array) @scandir( $dir ) as $entry ) {
+		if ( '.' === $entry || '..' === $entry ) {
+			continue;
+		}
+
+		@unlink( is_file( $dir . '/' . $entry ) ? $dir . '/' . $entry : $dir . '/' . $entry );
+	}
+
+	@rmdir( $dir );
+}
+
 class VVAI_Test_Runner {
 	public $passed = 0;
 	public $failed = 0;

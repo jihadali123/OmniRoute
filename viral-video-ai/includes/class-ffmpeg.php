@@ -47,7 +47,7 @@ class VVAI_FFMPEG {
 	 * @return string
 	 */
 	public function ffmpeg_path() {
-		return VVAI_Process::locate( (string) $this->settings->get( 'ffmpeg_path' ) );
+		return $this->resolve( 'ffmpeg_path', 'ffmpeg' );
 	}
 
 	/**
@@ -56,7 +56,143 @@ class VVAI_FFMPEG {
 	 * @return string
 	 */
 	public function ffprobe_path() {
-		return VVAI_Process::locate( (string) $this->settings->get( 'ffprobe_path' ) );
+		return $this->resolve( 'ffprobe_path', 'ffprobe' );
+	}
+
+	/**
+	 * Work out which executable to actually use for one logical binary.
+	 *
+	 * Priority: an explicit absolute path that exists, then the configured
+	 * "FFmpeg folder", then PATH and the conventional install directories, and
+	 * finally the raw value so the shell itself gets a chance. A configured path
+	 * that no longer exists is *not* fatal: a moved or upgraded FFmpeg is one of
+	 * the most common reasons a site stops producing clips.
+	 *
+	 * @param string $setting Setting key holding the configured value.
+	 * @param string $binary  Logical binary name.
+	 * @return string
+	 */
+	private function resolve( $setting, $binary ) {
+		$configured = trim( (string) $this->settings->get( $setting ) );
+		$exists     = '' !== $configured
+			&& ( is_file( $configured ) || is_file( wp_normalize_path( $configured ) ) );
+
+		if ( $exists && VVAI_Process::is_absolute( $configured ) ) {
+			return $configured;
+		}
+
+		$folder = trim( (string) $this->settings->get( 'ffmpeg_dir' ) );
+
+		if ( '' !== $folder && class_exists( 'VVAI_Binary_Locator' ) ) {
+			foreach ( VVAI_Binary_Locator::names( $binary ) as $name ) {
+				$candidate = VVAI_Binary_Locator::join( $folder, $name );
+
+				if ( is_file( $candidate ) ) {
+					return $candidate;
+				}
+			}
+		}
+
+		$name = ( '' === $configured || ! VVAI_Process::is_absolute( $configured ) ) ? $configured : '';
+		$name = '' === $name ? $binary : $name;
+
+		if ( ! (bool) $this->settings->get( 'auto_discover_binaries' ) ) {
+			return $name;
+		}
+
+		$found = VVAI_Process::locate( $name );
+
+		if ( '' !== $found && is_file( $found ) ) {
+			return $found;
+		}
+
+		return $name;
+	}
+
+	/**
+	 * What the administrator has to do to get FFmpeg running, per platform.
+	 *
+	 * @return array{reason:string,title:string,steps:string[],fix_url:string}
+	 */
+	public function engine_hint() {
+		$capability = VVAI_Process::capability();
+		$windows    = class_exists( 'VVAI_Binary_Locator' ) && VVAI_Binary_Locator::is_windows();
+		$fix_url    = '';
+
+		if ( function_exists( 'admin_url' ) ) {
+			$fix_url = admin_url( 'admin.php?page=vvai-diagnostics' );
+		}
+
+		if ( empty( $capability['available'] ) ) {
+			return array(
+				'reason'  => 'php_exec_disabled',
+				'title'   => __( 'PHP is not allowed to run programs on this server', 'viral-video-ai' ),
+				'steps'   => array(
+					__( 'Open the php.ini used by this site (Diagnostics below shows the loaded file) and remove proc_open and exec from disable_functions.', 'viral-video-ai' ),
+					__( 'Restart PHP (for example the web server or the local app\'s stack) and press "Re-check now".', 'viral-video-ai' ),
+					__( 'On managed hosting, ask support to allow external processes — many shared plans disable them entirely.', 'viral-video-ai' ),
+				),
+				'fix_url' => $fix_url,
+			);
+		}
+
+		if ( $windows ) {
+			$steps = array(
+				__( 'Download a Windows build of FFmpeg (for example ffmpeg-release-essentials.zip from gyan.dev, or a BtbN build from GitHub).', 'viral-video-ai' ),
+				__( 'Unzip it somewhere permanent, e.g. C:\\ffmpeg, so that C:\\ffmpeg\\bin\\ffmpeg.exe exists.', 'viral-video-ai' ),
+				__( 'In Viral Video AI → Settings, set "FFmpeg folder" to C:\\ffmpeg\\bin (the folder, not the .exe).', 'viral-video-ai' ),
+				__( 'Or press "Search this server" on the Diagnostics screen: any working copy is listed and applied in one click.', 'viral-video-ai' ),
+			);
+		} else {
+			$steps = array(
+				__( 'Install FFmpeg for the user PHP runs as: `apt install ffmpeg` (Debian/Ubuntu), `dnf install ffmpeg` (Fedora), `brew install ffmpeg` (macOS).', 'viral-video-ai' ),
+				__( 'Confirm with `which ffmpeg` from the same account, then set the absolute path in Viral Video AI → Settings if the folder is not on PATH.', 'viral-video-ai' ),
+				__( 'Or press "Search this server" on the Diagnostics screen to apply a discovered path automatically.', 'viral-video-ai' ),
+			);
+		}
+
+		return array(
+			'reason'  => 'not_found',
+			'title'   => __( 'FFmpeg was not found for the web server process', 'viral-video-ai' ),
+			'steps'   => $steps,
+			'fix_url' => $fix_url,
+		);
+	}
+
+	/**
+	 * Explain a failed availability probe (reason, where we looked, how to fix).
+	 *
+	 * @param array<string,mixed> $out Probe results.
+	 * @return array<string,mixed>
+	 */
+	private function diagnose_failure( array $out ) {
+		$hint = $this->engine_hint();
+		$cap  = VVAI_Process::capability();
+
+		$reason = (string) $hint['reason'];
+
+		if ( ! empty( $cap['available'] ) ) {
+			$safe_ffmpeg  = VVAI_Process::binary_is_safe( (string) vvai_array_get( $out['ffmpeg'], 'path', '' ) );
+			$safe_ffprobe = VVAI_Process::binary_is_safe( (string) vvai_array_get( $out['ffprobe'], 'path', '' ) );
+
+			if ( ! $safe_ffmpeg || ! $safe_ffprobe ) {
+				$reason = 'path_invalid';
+			}
+		}
+
+		$searched = array();
+
+		if ( class_exists( 'VVAI_Binary_Locator' ) ) {
+			$searched = array_slice( (array) VVAI_Binary_Locator::search_dirs(), 0, 8 );
+		}
+
+		return array(
+			'reason'    => $reason,
+			'title'     => (string) $hint['title'],
+			'steps'     => (array) $hint['steps'],
+			'searched'  => $searched,
+			'fix_url'   => (string) $hint['fix_url'],
+		);
 	}
 
 	/**
@@ -89,6 +225,10 @@ class VVAI_FFMPEG {
 
 		$out['ok'] = ! empty( $out['ffmpeg']['available'] ) && ! empty( $out['ffprobe']['available'] );
 
+		if ( ! $out['ok'] ) {
+			$out = array_merge( $out, $this->diagnose_failure( $out ) );
+		}
+
 		set_transient( self::CACHE_AVAIL, $out, self::CACHE_TTL );
 
 		return $out;
@@ -119,6 +259,14 @@ class VVAI_FFMPEG {
 			return $result;
 		}
 
+		$capability = VVAI_Process::capability();
+
+		if ( empty( $capability['available'] ) ) {
+			$result['error'] = __( 'PHP cannot start external programs on this server, so the binary cannot be checked: proc_open and exec are unavailable (check disable_functions in php.ini).', 'viral-video-ai' );
+
+			return $result;
+		}
+
 		if ( ! VVAI_Process::binary_is_safe( $binary ) ) {
 			$result['error'] = sprintf(
 				/* translators: %s: binary path. */
@@ -145,6 +293,27 @@ class VVAI_FFMPEG {
 
 		if ( '' !== $run['error'] && 0 !== (int) $run['code'] ) {
 			$result['error'] = $run['error'];
+
+			return $result;
+		}
+
+		if ( 0 !== (int) $run['code'] ) {
+			// The program exists but refused to run: keep the first line of its
+			// own output, because "not a valid Win32 application" or a missing DLL
+			// is exactly what the site owner needs to see.
+			$detail = trim( strtok( (string) $run['stderr'], "\n" ) );
+
+			if ( '' === $detail ) {
+				$detail = trim( strtok( (string) $run['stdout'], "\n" ) );
+			}
+
+			$result['error'] = sprintf(
+				/* translators: 1: binary name, 2: exit code, 3: program output. */
+				__( '%1$s could not be executed (exit code %2$s)%3$s.', 'viral-video-ai' ),
+				ucfirst( $label ),
+				(int) $run['code'],
+				'' !== $detail ? ': ' . substr( $detail, 0, 200 ) : ''
+			);
 
 			return $result;
 		}
@@ -612,7 +781,13 @@ class VVAI_FFMPEG {
 		if ( empty( $availability['ok'] ) ) {
 			return new WP_Error(
 				'ffmpeg_unavailable',
-				__( 'FFmpeg or FFprobe is not available on this server, so clips cannot be rendered. Set the correct paths in Viral Video AI → Settings.', 'viral-video-ai' )
+				'' !== (string) vvai_array_get( $availability, 'title', '' )
+					? (string) $availability['title']
+					: __( 'FFmpeg or FFprobe is not available on this server, so clips cannot be rendered.', 'viral-video-ai' ),
+				array(
+					'hint' => implode( ' ', array_map( 'strval', (array) vvai_array_get( $availability, 'steps', array() ) ) ),
+					'code' => (string) vvai_array_get( $availability, 'reason', 'not_found' ),
+				)
 			);
 		}
 

@@ -4,7 +4,7 @@ Tags: video, ai, ffmpeg, shorts, reels, tiktok, transcription, clips
 Requires at least: 6.1
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 1.0.2
+Stable tag: 1.0.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -52,7 +52,16 @@ Provider adapters share one interface, the AI call goes through a router, and FF
 * Optional but recommended: [Action Scheduler](https://wordpress.org/plugins/action-scheduler/) (bundled with WooCommerce, also standalone) for proper background queues
 
 = FFmpeg setup =
-The plugin never installs binaries; it uses what the server has.
+The plugin never installs binaries; it finds and uses what the server has.
+
+**The short version (works on every platform, including Local by Flywheel on Windows):**
+
+1. Install FFmpeg (see the per-OS commands below) — on Windows, extract a build to a short, permanent folder such as `C:\ffmpeg`, so that `C:\ffmpeg\bin\ffmpeg.exe` exists.
+2. Open **Viral Video AI → Diagnostics** and press **Search this server for FFmpeg**.
+3. Every candidate folder that contains both binaries is listed, and each binary is only offered after it has been *executed* and answered with a real version banner. Press **Use this folder** and the plugin saves that folder, re-probes, and reports the version.
+4. Try it again — the widget's "not ready" notice disappears as soon as FFmpeg and FFprobe both respond.
+
+Prefer to type it? Put the **folder** (not the `.exe`) in Viral Video AI → Settings → *FFmpeg folder*, e.g. `C:\ffmpeg\bin` or `/usr/local/bin`. `FFmpeg path` / `FFprobe path` remain available if you need to force one specific executable. Enabling *Look for FFmpeg in the usual install folders* (default) is what makes a normal install work without typing anything: a web server process frequently does **not** inherit the `PATH` you see in a terminal, which is the single most common reason "FFmpeg is installed but the plugin says it is not".
 
 * Debian/Ubuntu: `sudo apt-get install ffmpeg`
 * Alma/RHEL: `sudo dnf install --enablerepo=crb ffmpeg-free` (or RPM Fusion) then confirm `ffmpeg -version`
@@ -60,11 +69,11 @@ The plugin never installs binaries; it uses what the server has.
 * Docker/`ffmpeg-static` builds: any build with `libx264` + `aac` works; `libass` is needed for burned-in captions
 * Windows (XAMPP/WAMP/MAMP): download a release from `https://www.gyan.dev/ffmpeg/builds/` (e.g. `ffmpeg-release-essentials.zip`), extract it to a short path such as `C:\ffmpeg`, then either add `C:\ffmpeg\bin` to the system `PATH` and restart Apache/your site, or set the absolute paths in Viral Video AI → Settings:
   `C:\ffmpeg\bin\ffmpeg.exe` and `C:\ffmpeg\bin\ffprobe.exe`
-* Local by Flywheel (Windows/macOS): Local's PHP cannot see your user `PATH` unless the app was restarted after changing it, so the reliable route is the absolute path in Settings, then Viral Video AI → Diagnostics → "Re-check now". Local serves the site with nginx — see "Protecting rendered files" below.
+* Local by Flywheel (Windows/macOS): Local's PHP cannot see your user `PATH` unless the app was restarted after changing it, so use the *FFmpeg folder* setting (or Diagnostics → Search this server → Use this folder) instead of relying on `PATH`. Local serves the site with nginx — see "Protecting rendered files" below.
 
-If the binaries are not on `PATH`, set the absolute paths in **Viral Video AI → Settings → Server & rendering** and press "Re-check now" in Diagnostics. Common locations: `/usr/bin/ffmpeg`, `/usr/local/bin/ffmpeg`, `/opt/homebrew/bin/ffmpeg`.
+If the binaries are not on `PATH`, set the folder (or the absolute paths) in **Viral Video AI → Settings → Server & rendering** and press "Re-check now" in Diagnostics. Common locations: `/usr/bin/ffmpeg`, `/usr/local/bin/ffmpeg`, `/opt/homebrew/bin/ffmpeg`, `C:\ffmpeg\bin`.
 
-Verify from the shell that the web user can execute it: `sudo -u www-data ffmpeg -version`.
+Verify from the shell that the web user can execute it: `sudo -u www-data ffmpeg -version`. On Windows, verify as the account running PHP — a build that needs its sibling DLLs will only start when `ffmpeg.exe`'s own folder is used (the plugin runs each binary from inside that folder for exactly this reason).
 
 == Protecting rendered files ==
 
@@ -150,7 +159,11 @@ Daily housekeeping deletes scratch audio, orphaned upload sessions and clips old
 
 **"Fatal error: fclose(): supplied resource is not a valid stream resource" after activating (Windows/Local)** — fixed in 1.0.1; update the plugin. If it still appears on an older build, the host's PHP closes proc_open pipes eagerly and FFmpeg cannot be probed safely.
 
-**Diagnostics says FFmpeg is not available** — the binary is missing, or `exec`/`proc_open` are in `disable_functions`, or the path is wrong. Test with `which ffmpeg && ffmpeg -version`, then `sudo -u www-data ffmpeg -version`. On hosts that block `proc_open`, no server-side rendering is possible: ask the host to allow it, or use a rendering worker (`vvai_process_runner`).
+**Diagnostics says FFmpeg is not available** — the binary is missing, PHP is not allowed to start programs, or the path is wrong. The Diagnostics screen now states which of the three it is ("FFmpeg was not found for the web server process", "PHP is not allowed to run programs on this server", or an error quoting what your binary actually answered), lists the folders that were searched, and gives per-platform steps. Press **Search this server for FFmpeg** to find and apply a working folder in one click. From a shell, test with `which ffmpeg && ffmpeg -version`, then `sudo -u www-data ffmpeg -version`. On hosts that block `proc_open` and `exec`, no server-side rendering is possible: ask the host to allow it, or route rendering to a worker (`vvai_process_runner`).
+
+**A visitor sees "This site cannot render clips yet"** — that is the plugin protecting them: with no working FFmpeg, uploads are refused *before* a single byte is transferred, instead of failing after a long upload and a paid API call. Fix FFmpeg on the server and the notice disappears on the next page view.
+
+**I fixed the path but the plugin kept failing for a few minutes** — no longer true as of 1.0.3: saving any FFmpeg setting clears both the availability cache and the discovery cache, and the Diagnostics screen re-scans on every load.
 
 **"Connection failed — invalid API key"** — the key is wrong, revoked, or belongs to a different provider. Paste it again; check the provider's billing page. Free/trial keys can expire or be region-restricted.
 
@@ -183,6 +196,16 @@ REST: `vvai/v1` — `/providers`, `/connections` (+`/{id}/connect|disconnect|act
 Tests: the plugin ships a standalone suite that runs against a real PHP CLI (`php tests/run-tests.php`) and, when the dev harness is present, drives real FFmpeg renders and a real local provider. See `tests/README.md`.
 
 == Changelog ==
+
+= 1.0.3 =
+* Added automatic FFmpeg discovery: when a bare `ffmpeg` is not on the web server's `PATH`, the plugin now searches `PATH`, the conventional install folders (`C:\ffmpeg\bin`, Program Files, chocolatey/scoop/winGet links, `/usr/local/bin`, `/opt/homebrew/bin`, `wp-content/bin`, the plugin's own `bin/`) and `which`/`where` before giving up — the usual reason a working local install looked "not available".
+* Added an *FFmpeg folder* setting (one value for both binaries, Windows paths and pasted `.exe` paths accepted) plus **Diagnostics → Video engine** panel: per-binary configured vs. actually-used path, real version or the exact error, the folders searched, per-platform fix steps, a "Search this server for FFmpeg" button and one-click **Use this folder** apply.
+* Added a pre-flight readiness gate: the widget shows "This site cannot render clips yet" with the administrator's fix steps *before* anyone uploads, and `POST /jobs` refuses with the same explanation plus a hint instead of failing after an upload and a paid AI call.
+* Fixed FFmpeg settings appearing to be ignored: saving a binary path (or folder) now clears the availability cache and grants a fresh probe, and the Diagnostics screen drops the discovery cache on load.
+* Fixed shared FFmpeg builds failing to start: every binary is now executed from its own folder with that folder prepended to the child `PATH` (missing sibling DLLs on Windows), and the environment is inherited explicitly.
+* Hardened binary verification: a candidate is only ever saved as the renderer after its own `-version` banner identifies it as FFmpeg/FFprobe, so a renamed or unrelated executable cannot be adopted from a searched folder.
+* Changed engine failures to report *why* (`not_found`, `path_invalid`, `php_exec_disabled`) with the exit code and first line of the program's own output when the binary exists but refuses to run.
+* Tests: 766 assertions across four suites (+26 Windows-only regressions), including discovery in a synthetic bin folder, decoy-binary rejection, the folder sanitizer's Windows cases, cache invalidation on save, and the admin-only search/apply endpoints over REST and admin-ajax.
 
 = 1.0.2 =
 * Simplified the frontend and Elementor UI: one card instead of three numbered panels. A visitor now chooses only video → number of clips (1-5 chips) → shape → quality. Everything else (content focus, clip length preset, framing, captions, connection) is collapsed behind a single "Advanced options" disclosure and already defaults to good values, so one click is enough.

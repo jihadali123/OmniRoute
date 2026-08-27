@@ -1,0 +1,17 @@
+{
+  "name": "vvai-dev-harness",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Sandboxed PHP runtime + linters used to test Viral Video AI without a WordPress install.",
+  "type": "module",
+  "scripts": {
+    "lint": "node php.mjs lint.php ../..",
+    "lint74": "PHP_VERSION=7.4 node php.mjs lint.php ../..",
+    "core": "node php.mjs ../01-core.php",
+    "integration": "node php.mjs ../02-integration.php",
+    "windows": "node php.mjs windows-fixes.php"
+  },
+  "dependencies": {
+    "@php-wasm/node": "3.1.51"
+  }
+}

@@ -13,7 +13,7 @@
 (function () {
 	'use strict';
 
-	var VERSION = '1.0.0';
+	var VERSION = '1.0.3';
 
 	/**
 	 * Small helpers ---------------------------------------------------------
@@ -875,6 +875,7 @@
 
 		var blocked = !this.sourceRef
 			|| (this.config.requireLogin && !this.config.loggedIn)
+			|| (this.config.ready === false)
 			|| (this.config.hasConnection === false && !this.options().connection);
 
 		button.disabled = blocked;
@@ -883,7 +884,9 @@
 		var hint = this.el('hint');
 
 		if (hint && !hint.hasAttribute('data-vvai-static')) {
-			if (this.config.requireLogin && !this.config.loggedIn) {
+			if (this.config.ready === false) {
+				hint.textContent = this.config.readyHint || this.str('engineDown', 'Video processing is not configured on this site yet.');
+			} else if (this.config.requireLogin && !this.config.loggedIn) {
 				hint.textContent = this.str('loginRequired', 'Please log in to generate clips.');
 			} else if (this.config.hasConnection === false && !this.config.connectionError) {
 				hint.textContent = this.str('noConnection', 'Please connect an AI provider first.');
@@ -897,6 +900,14 @@
 
 	App.prototype.generate = function () {
 		var self = this;
+
+		if (this.config.ready === false) {
+			this.error(
+				this.config.readyMessage || this.str('engineDown', 'Video processing is not configured on this site yet.'),
+				this.config.readyHint || ''
+			);
+			return;
+		}
 
 		if (!this.sourceRef) {
 			this.error(this.str('chooseVideo', 'Choose a video first.'));

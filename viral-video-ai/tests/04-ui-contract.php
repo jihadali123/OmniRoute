@@ -418,4 +418,63 @@ $runner->test( 'a WP_Error from a handler keeps its own status', function () use
 	$runner->contains( 'connect an AI provider', $result->get_error_message() );
 } );
 
+
+$runner->test( 'the diagnostics screen renders the video engine panel cleanly', function () use ( $runner, $plugin ) {
+	$html = '';
+
+	ob_start();
+	( new VVAI_Admin( $plugin ) )->page_diagnostics();
+	$html = (string) ob_get_clean();
+
+	$runner->assert( strlen( $html ) > 400, 'the screen renders' );
+	$runner->assert( false === strpos( $html, 'Undefined array key' ), 'no PHP notices from the new panel' );
+	$runner->assert( false === strpos( $html, 'Fatal error' ), 'no fatal' );
+	$runner->assert( false === strpos( $html, 'Warning</b>' ), 'no warnings' );
+	$runner->contains( 'Video engine (FFmpeg)', $html, 'the panel is present' );
+	$runner->contains( 'data-vvai-engine-search', $html, 'with the search control' );
+	$runner->contains( 'data-vvai-engine-state', $html, 'and a status line' );
+	$runner->contains( 'Configured', $html, 'showing configured vs actually used' );
+	$runner->assert( false === strpos( $html, 'sk-' ), 'no key material reaches the screen' );
+	$runner->assert( false === strpos( $html, '"transcription_api_key"' ), 'the settings map is never dumped into the panel' );
+	$runner->assert( false === strpos( $html, 'BEGIN PRIVATE KEY' ), 'and no secret blob at all' );
+} );
+
+$runner->test( 'every data attribute the admin script reaches for exists in a view', function () use ( $runner ) {
+	$js = (string) file_get_contents( VVAI_PLUGIN_UNDER_TEST . '/admin/js/admin.js' );
+
+	preg_match_all( "/[\"']?\[?(data-vvai-[a-z0-9-]+)/", $js, $matches );
+
+	$wanted = array_unique( $matches[1] );
+
+	$views = '';
+
+	foreach ( (array) glob( VVAI_PLUGIN_UNDER_TEST . '/admin/views/*.php' ) as $view ) {
+		$views .= (string) file_get_contents( $view );
+	}
+
+	$missing = array();
+
+	foreach ( $wanted as $attribute ) {
+		if ( false === strpos( $views, $attribute ) ) {
+			$missing[] = $attribute;
+		}
+	}
+
+	$runner->assert( count( $wanted ) > 15, 'the scan found the admin hooks (' . count( $wanted ) . ')' );
+	$runner->assert( ! $missing, 'no JS reaches for markup the views never print: ' . implode( ', ', $missing ) );
+} );
+
+$runner->test( 'the generator widget blocks submit while the engine is down', function () use ( $runner, $plugin ) {
+	$js = (string) file_get_contents( VVAI_PLUGIN_UNDER_TEST . '/assets/js/vvai-frontend.js' );
+
+	$runner->assert( false !== strpos( $js, 'this.config.ready === false' ), 'the submit gate reads the readiness flag' );
+	$runner->assert( substr_count( $js, 'this.config.ready === false' ) >= 2, 'and it is enforced both on the button and on submit' );
+
+	$php = (string) file_get_contents( VVAI_PLUGIN_UNDER_TEST . '/templates/frontend/generator.php' );
+
+	$runner->assert( false !== strpos( $php, 'readySteps' ), 'the template renders the fix steps' );
+	$runner->assert( false !== strpos( $php, 'vvai-notice--error' ), 'as an error notice' );
+	$runner->assert( false !== strpos( $php, 'readyFixUrl' ), 'with an admin-only link' );
+} );
+
 exit( $runner->summary() );

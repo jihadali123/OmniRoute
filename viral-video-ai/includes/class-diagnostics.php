@@ -81,19 +81,23 @@ class VVAI_Diagnostics {
 		// for, so this stays cheap on every dashboard load.
 		$availability = $this->ffmpeg->availability( true );
 
+		$ffmpeg_ok  = ! empty( $availability['ffmpeg']['available'] );
+		$ffprobe_ok = ! empty( $availability['ffprobe']['available'] );
+
 		$items[] = $this->item(
 			'ffmpeg',
 			__( 'FFmpeg available', 'viral-video-ai' ),
-			! empty( $availability['ffmpeg']['available'] ) ? (string) $availability['ffmpeg']['version'] : (string) vvai_array_get( $availability['ffmpeg'], 'error', __( 'Not found', 'viral-video-ai' ) ),
-			! empty( $availability['ffmpeg']['available'] ) ? 'ready' : 'problem',
-			! empty( $availability['ffmpeg']['available'] ) ? '' : __( 'Install FFmpeg on the server, or set the absolute path in Viral Video AI → Settings.', 'viral-video-ai' )
+			$ffmpeg_ok ? (string) $availability['ffmpeg']['version'] : (string) vvai_array_get( $availability['ffmpeg'], 'error', __( 'Not found', 'viral-video-ai' ) ),
+			$ffmpeg_ok ? 'ready' : 'problem',
+			$ffmpeg_ok ? (string) vvai_array_get( $availability['ffmpeg'], 'path', '' ) : $this->engine_hint_text( $availability )
 		);
 
 		$items[] = $this->item(
 			'ffprobe',
 			__( 'FFprobe available', 'viral-video-ai' ),
-			! empty( $availability['ffprobe']['available'] ) ? (string) $availability['ffprobe']['version'] : (string) vvai_array_get( $availability['ffprobe'], 'error', __( 'Not found', 'viral-video-ai' ) ),
-			! empty( $availability['ffprobe']['available'] ) ? 'ready' : 'problem'
+			$ffprobe_ok ? (string) $availability['ffprobe']['version'] : (string) vvai_array_get( $availability['ffprobe'], 'error', __( 'Not found', 'viral-video-ai' ) ),
+			$ffprobe_ok ? 'ready' : 'problem',
+			$ffprobe_ok ? (string) vvai_array_get( $availability['ffprobe'], 'path', '' ) : ''
 		);
 
 		$encoders = (array) vvai_array_get( $availability['ffmpeg'], 'encoders', array() );
@@ -256,13 +260,53 @@ class VVAI_Diagnostics {
 	 * @return array{ok:bool,message:string,code:string}
 	 */
 	public function preflight() {
+		$ready = $this->frontend_readiness();
+
+		if ( empty( $ready['ok'] ) ) {
+			return $ready;
+		}
+
+		if ( ! VVAI_DB::is_installed() ) {
+			return array(
+				'ok'      => false,
+				'message' => __( 'The plugin database tables are missing. Deactivate and reactivate the plugin to create them.', 'viral-video-ai' ),
+				'code'    => 'tables_missing',
+				'reason'  => 'tables_missing',
+				'steps'   => array( __( 'Deactivate Viral Video AI and activate it again — that recreates the vvai_jobs, vvai_clips and vvai_uploads tables.', 'viral-video-ai' ) ),
+				'hint'    => __( 'Deactivate and reactivate the plugin.', 'viral-video-ai' ),
+				'fixUrl'  => '',
+			);
+		}
+
+		return $ready;
+	}
+
+	/**
+	 * Readiness for public screens.
+	 *
+	 * Deliberately cheap: the FFmpeg answer comes from the cached availability
+	 * report and no table is queried, so a widget in a page builder can ask this
+	 * on every view. Its whole purpose is to stop a visitor uploading a 2 GB
+	 * video into a pipeline that cannot render it.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public function frontend_readiness() {
 		$availability = $this->ffmpeg->availability();
 
 		if ( empty( $availability['ok'] ) ) {
+			$steps = array_map( 'strval', (array) vvai_array_get( $availability, 'steps', array() ) );
+
 			return array(
 				'ok'      => false,
-				'message' => __( 'FFmpeg/FFprobe are not available on this server, so clips cannot be rendered. Fix the paths in Viral Video AI → Settings → Diagnostics.', 'viral-video-ai' ),
+				'message' => '' !== (string) vvai_array_get( $availability, 'title', '' )
+					? (string) $availability['title']
+					: __( 'FFmpeg/FFprobe are not available on this server, so clips cannot be rendered.', 'viral-video-ai' ),
 				'code'    => 'ffmpeg_unavailable',
+				'reason'  => (string) vvai_array_get( $availability, 'reason', 'not_found' ),
+				'steps'   => $steps,
+				'hint'    => $steps ? implode( ' ', $steps ) : __( 'Ask the site administrator to install FFmpeg or set its folder in Viral Video AI → Settings.', 'viral-video-ai' ),
+				'fixUrl'  => (string) vvai_array_get( $availability, 'fix_url', '' ),
 			);
 		}
 
@@ -271,16 +315,12 @@ class VVAI_Diagnostics {
 		if ( ! is_dir( $storage ) || ! is_writable( $storage ) ) {
 			return array(
 				'ok'      => false,
-				'message' => __( 'The plugin storage folder is not writable (check uploads/vvai permissions).', 'viral-video-ai' ),
+				'message' => __( 'The plugin storage folder is not writable, so nothing can be rendered.', 'viral-video-ai' ),
 				'code'    => 'storage_not_writable',
-			);
-		}
-
-		if ( ! VVAI_DB::is_installed() ) {
-			return array(
-				'ok'      => false,
-				'message' => __( 'The plugin database tables are missing. Deactivate and reactivate the plugin to create them.', 'viral-video-ai' ),
-				'code'    => 'tables_missing',
+				'reason'  => 'storage_not_writable',
+				'steps'   => array( __( 'Give the web server write access to wp-content/uploads/vvai (755 with the right owner, 775 if the folder is shared).', 'viral-video-ai' ) ),
+				'hint'    => __( 'Check the permissions on wp-content/uploads/vvai.', 'viral-video-ai' ),
+				'fixUrl'  => '',
 			);
 		}
 
@@ -288,6 +328,10 @@ class VVAI_Diagnostics {
 			'ok'      => true,
 			'message' => '',
 			'code'    => '',
+			'reason'  => '',
+			'steps'   => array(),
+			'hint'    => '',
+			'fixUrl'  => '',
 		);
 	}
 
@@ -321,6 +365,233 @@ class VVAI_Diagnostics {
 			'uploads'       => (int) $this->settings->get( 'max_upload_mb' ),
 			'memory'        => (string) ini_get( 'memory_limit' ),
 		);
+	}
+
+	/**
+	 * One-line "how do I fix this" text for a failed availability probe.
+	 *
+	 * @param array<string,mixed> $availability Availability report.
+	 * @return string
+	 */
+	protected function engine_hint_text( array $availability ) {
+		$steps = array_map( 'strval', (array) vvai_array_get( $availability, 'steps', array() ) );
+
+		if ( ! $steps ) {
+			return __( 'Install FFmpeg on the server, or point Viral Video AI → Settings at the folder that contains it.', 'viral-video-ai' );
+		}
+
+		return implode( ' ', $steps );
+	}
+
+	/**
+	 * Everything the Diagnostics screen needs to know about the video engine.
+	 *
+	 * @param string $mode 'status' | 'search' | 'apply'.
+	 * @param string $dir  Folder to apply (mode=apply).
+	 * @return array<string,mixed>|WP_Error
+	 */
+	public function ffmpeg_engine( $mode = 'status', $dir = '' ) {
+		$mode = in_array( (string) $mode, array( 'status', 'search', 'apply' ), true ) ? (string) $mode : 'status';
+
+		if ( 'apply' === $mode ) {
+			$applied = $this->ffmpeg_apply_dir( $dir );
+
+			if ( is_wp_error( $applied ) ) {
+				return $applied;
+			}
+		} elseif ( 'search' === $mode ) {
+			// A search must see the filesystem as it is now, not the cached answer.
+			VVAI_Settings::flush_engine_caches();
+		}
+
+		$availability = $this->ffmpeg->availability();
+
+		$payload = array(
+			'mode'       => $mode,
+			'ok'         => ! empty( $availability['ok'] ),
+			'reason'     => (string) vvai_array_get( $availability, 'reason', '' ),
+			'title'      => (string) vvai_array_get( $availability, 'title', '' ),
+			'steps'      => array_map( 'strval', (array) vvai_array_get( $availability, 'steps', array() ) ),
+			'os'         => VVAI_Binary_Locator::is_windows() ? 'windows' : 'unix',
+			'executable' => VVAI_Process::capability(),
+			'settings'   => array(
+				'ffmpeg_path'    => (string) $this->settings->get( 'ffmpeg_path' ),
+				'ffprobe_path'   => (string) $this->settings->get( 'ffprobe_path' ),
+				'ffmpeg_dir'     => (string) $this->settings->get( 'ffmpeg_dir' ),
+				'auto_discover'  => (bool) $this->settings->get( 'auto_discover_binaries' ),
+			),
+			'bins'       => array(),
+			'searched'   => array_slice( VVAI_Binary_Locator::search_dirs(), 0, 16 ),
+			'found'      => array(),
+			'message'    => '',
+		);
+
+		foreach ( array( 'ffmpeg' => 'ffmpeg_path', 'ffprobe' => 'ffprobe_path' ) as $kind => $setting ) {
+			$resolved = 'ffmpeg' === $kind ? $this->ffmpeg->ffmpeg_path() : $this->ffmpeg->ffprobe_path();
+			$state    = (array) vvai_array_get( $availability, $kind, array() );
+
+			$payload['bins'][] = array(
+				'kind'       => $kind,
+				'configured' => (string) $this->settings->get( $setting ),
+				'resolved'   => (string) $resolved,
+				'ok'         => ! empty( $state['available'] ),
+				'version'    => (string) vvai_array_get( $state, 'version', '' ),
+				'error'      => (string) vvai_array_get( $state, 'error', '' ),
+			);
+		}
+
+		if ( 'status' !== $mode ) {
+			$payload['found'] = $this->ffmpeg_candidates();
+		}
+
+		if ( 'search' === $mode ) {
+			$payload['message'] = $payload['found']
+				? sprintf(
+					/* translators: %s: number of locations. */
+					__( '%s possible FFmpeg location(s) inspected on this server.', 'viral-video-ai' ),
+					(string) count( $payload['found'] )
+				)
+				: __( 'Nothing that looks like FFmpeg was found on this server. Install a build, then apply it here or set the folder in Settings.', 'viral-video-ai' );
+		}
+
+		return $payload;
+	}
+
+	/**
+	 * Inspect every discovered FFmpeg folder, verifying each binary by running it.
+	 *
+	 * Verification matters: a file called ffmpeg.exe proves nothing, and the
+	 * plugin must never save a path it has not seen answer `-version`.
+	 *
+	 * @return array<int,array<string,mixed>>
+	 */
+	protected function ffmpeg_candidates() {
+		$by_dir = array();
+
+		foreach ( array( 'ffmpeg', 'ffprobe' ) as $kind ) {
+			foreach ( VVAI_Binary_Locator::discover_all( $kind ) as $path ) {
+				$dir = str_replace( '\\', '/', dirname( str_replace( '\\', '/', (string) $path ) ) );
+
+				if ( ! isset( $by_dir[ $dir ] ) ) {
+					$by_dir[ $dir ] = array();
+				}
+
+				$by_dir[ $dir ][ $kind ] = $path;
+			}
+		}
+
+		$rows   = array();
+		$probes = 0;
+
+		foreach ( $by_dir as $dir => $found ) {
+			$row = array(
+				'dir'   => (string) $dir,
+				'ok'    => false,
+				'bins'  => array(),
+			);
+
+			foreach ( $found as $kind => $path ) {
+				if ( $probes >= 12 ) {
+					break;
+				}
+
+				$probes++;
+
+				$verified           = VVAI_Binary_Locator::verify( $path, $kind );
+				$row['bins'][ $kind ] = array(
+					'path'    => (string) $verified['path'],
+					'ok'      => (bool) $verified['ok'],
+					'version' => (string) $verified['version'],
+					'error'   => (string) $verified['error'],
+				);
+			}
+
+			$row['ok'] = ! empty( $row['bins']['ffmpeg']['ok'] ) && ! empty( $row['bins']['ffprobe']['ok'] );
+
+			$rows[] = $row;
+		}
+
+		usort(
+			$rows,
+			static function ( $a, $b ) {
+				return (int) $b['ok'] - (int) $a['ok'];
+			}
+		);
+
+		return array_slice( $rows, 0, 8 );
+	}
+
+	/**
+	 * Point the plugin at a discovered FFmpeg folder.
+	 *
+	 * @param string $dir Folder path.
+	 * @return true|WP_Error
+	 */
+	protected function ffmpeg_apply_dir( $dir ) {
+		$dir = $this->settings->sanitize_binary_dir( $dir );
+
+		if ( '' === $dir ) {
+			return new WP_Error( 'vvai_bad_dir', __( 'That folder is not a valid path this plugin may use (it must be absolute and outside the uploads folder).', 'viral-video-ai' ) );
+		}
+
+		if ( ! is_dir( $dir ) ) {
+			return new WP_Error( 'vvai_missing_dir', __( 'That folder does not exist on this server.', 'viral-video-ai' ) );
+		}
+
+		$ffmpeg_found  = false;
+		$ffprobe_found = false;
+
+		foreach ( VVAI_Binary_Locator::names( 'ffmpeg' ) as $name ) {
+			if ( is_file( VVAI_Binary_Locator::join( $dir, $name ) ) ) {
+				$ffmpeg_found = true;
+
+				break;
+			}
+		}
+
+		foreach ( VVAI_Binary_Locator::names( 'ffprobe' ) as $name ) {
+			if ( is_file( VVAI_Binary_Locator::join( $dir, $name ) ) ) {
+				$ffprobe_found = true;
+
+				break;
+			}
+		}
+
+		if ( ! $ffmpeg_found || ! $ffprobe_found ) {
+			return new WP_Error(
+				'vvai_incomplete_dir',
+				sprintf(
+					/* translators: %s: folder path. */
+					__( '%s must contain both ffmpeg and ffprobe to be used.', 'viral-video-ai' ),
+					$dir
+				)
+			);
+		}
+
+		$stored = $this->settings->all();
+		$stored['ffmpeg_dir']  = $dir;
+		$stored['ffmpeg_path'] = 'ffmpeg';
+		$stored['ffprobe_path'] = 'ffprobe';
+
+		update_option( VVAI_Settings::OPTION_KEY, $this->settings->sanitize( $stored ), 'yes' );
+
+		VVAI_Settings::flush_engine_caches();
+
+		$availability = $this->ffmpeg->availability();
+
+		if ( empty( $availability['ok'] ) ) {
+			return new WP_Error(
+				'vvai_engine_still_down',
+				sprintf(
+					/* translators: %s: folder path. */
+					__( 'The folder was saved, but %s did not produce a working FFmpeg and FFprobe. See the error next to each binary.', 'viral-video-ai' ),
+					$dir
+				),
+				array( 'hint' => $this->engine_hint_text( $availability ) )
+			);
+		}
+
+		return true;
 	}
 
 	/**

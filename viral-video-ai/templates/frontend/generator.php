@@ -29,11 +29,35 @@ $vvai_conns     = (array) vvai_array_get( $config, 'connections', array() );
 $vvai_needs     = (bool) vvai_array_get( $config, 'requireLogin', true ) && ! vvai_array_get( $config, 'loggedIn', false );
 $vvai_no_conn   = '' !== (string) vvai_array_get( $config, 'connectionError', '' );
 $vvai_max_clips = (int) vvai_array_get( $config, 'maxClips', 5 );
+$vvai_ready     = (bool) vvai_array_get( $config, 'ready', true );
+$vvai_fix_url   = (string) vvai_array_get( $config, 'readyFixUrl', '' );
+$vvai_steps     = array_values( array_filter( array_map( 'strval', (array) vvai_array_get( $config, 'readySteps', array() ) ) ) );
 ?>
 <div class="vvai-app" id="<?php echo esc_attr( $vvai_id ); ?>" data-vvai-app data-config="<?php echo esc_attr( wp_json_encode( $config ) ); ?>">
 	<div class="vvai-shell">
 
-		<?php if ( $vvai_needs ) : ?>
+		<?php if ( ! $vvai_ready ) : ?>
+			<div class="vvai-notice vvai-notice--error" role="alert">
+				<p>
+					<strong><?php esc_html_e( 'This site cannot render clips yet', 'viral-video-ai' ); ?></strong>
+					<?php
+					if ( '' !== $vvai_fix_url ) {
+						echo esc_html( (string) vvai_array_get( $config, 'readyMessage', '' ) );
+					} else {
+						esc_html_e( 'Video processing is not configured on this site yet, so uploads are disabled for the moment. Please contact the site administrator.', 'viral-video-ai' );
+					}
+					?>
+				</p>
+				<?php if ( '' !== $vvai_fix_url && $vvai_steps ) : ?>
+					<ol class="vvai-notice__steps">
+						<?php foreach ( $vvai_steps as $vvai_step ) : ?>
+							<li><?php echo esc_html( $vvai_step ); ?></li>
+						<?php endforeach; ?>
+					</ol>
+					<p><a class="vvai-btn vvai-btn--ghost" href="<?php echo esc_url( $vvai_fix_url ); ?>"><?php esc_html_e( 'Open Viral Video AI → Diagnostics', 'viral-video-ai' ); ?></a></p>
+				<?php endif; ?>
+			</div>
+		<?php elseif ( $vvai_needs ) : ?>
 			<div class="vvai-notice vvai-notice--warning">
 				<p><?php esc_html_e( 'Please log in to generate clips.', 'viral-video-ai' ); ?></p>
 				<p><a class="vvai-btn vvai-btn--ghost" href="<?php echo esc_url( wp_login_url( get_permalink() ) ); ?>"><?php esc_html_e( 'Log in', 'viral-video-ai' ); ?></a></p>

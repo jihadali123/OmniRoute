@@ -423,14 +423,17 @@ class VVAI_Admin {
 	 * Diagnostics page.
 	 */
 	public function page_diagnostics() {
-		// Re-probe binaries exactly once, here, on explicit page load.
+		// Re-probe binaries exactly once, here, on explicit page load. The
+		// discovery cache is dropped too, so FFmpeg installed (or moved) since
+		// the last look is found without editing a single setting.
 		delete_transient( VVAI_FFMPEG::CACHE_AVAIL );
-		set_transient( 'vvai_force_probe', 1, 60 );
+		VVAI_Settings::flush_engine_caches();
 
 		$this->view(
 			'diagnostics',
 			array(
 				'report' => $this->plugin->diagnostics()->report(),
+				'engine'   => $this->plugin->diagnostics()->ffmpeg_engine( 'status' ),
 				'log'      => array(
 					'enabled' => (bool) $this->plugin->settings()->get( 'debug_log' ),
 					'tail'    => $this->plugin->logger()->tail( 60 ),
