@@ -26,6 +26,10 @@ function vvai_test_env( $key, $default = '' ) {
 		return $value;
 	}
 
+	if ( isset( $_SERVER[ $key ] ) && '' !== (string) $_SERVER[ $key ] ) {
+		return (string) $_SERVER[ $key ];
+	}
+
 	static $forwarded = null;
 
 	if ( null === $forwarded ) {
@@ -34,7 +38,15 @@ function vvai_test_env( $key, $default = '' ) {
 		$forwarded = (array) vvai_array_get( $forwarded, 'env', array() );
 	}
 
-	return (string) vvai_array_get( $forwarded, $key, $default );
+	$forwarded_value = (string) vvai_array_get( $forwarded, $key, '' );
+
+	// An empty forwarded value means "not set": falling back to the default keeps a
+	// caller that forwards a blank environment from disabling the harness.
+	if ( '' !== $forwarded_value ) {
+		return $forwarded_value;
+	}
+
+	return (string) $default;
 }
 
 
@@ -334,6 +346,8 @@ function vvai_test_make_source_video( $duration = 26.0, $width = 640, $height = 
 
 		$result = array( 'code' => $code, 'stdout' => implode( "\n", $output ) );
 	} else {
+		$bridge = vvai_test_env( 'VVAI_BRIDGE', 'http://127.0.0.1:8799/exec' );
+
 		$response = wp_remote_post(
 			$bridge,
 			array(
