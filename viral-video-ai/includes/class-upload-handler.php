@@ -110,16 +110,10 @@ class VVAI_Upload_Handler {
 			return new WP_Error( 'vvai_bad_size', __( 'The browser did not report a file size.', 'viral-video-ai' ) );
 		}
 
-		if ( $size > $max ) {
-			return new WP_Error(
-				'vvai_too_large',
-				sprintf(
-					/* translators: 1: file size, 2: allowed size. */
-					__( 'That file is %1$s, but this site accepts at most %2$s per upload. A hosting limit (upload_max_filesize / post_max_size) may also apply.', 'viral-video-ai' ),
-					vvai_human_size( $size ),
-					vvai_human_size( $max )
-				)
-			);
+		$too_big = $this->settings->check_upload_size( $size );
+
+		if ( is_wp_error( $too_big ) ) {
+			return $too_big;
 		}
 
 		$chunk = max( 256 * KB_IN_BYTES, min( 32 * MB_IN_BYTES, $chunk ) );
@@ -192,12 +186,14 @@ class VVAI_Upload_Handler {
 
 		$this->write_meta( $handle, $meta );
 
-		// Pre-create the sparse assembly file so chunk offsets are stable.
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- sparse allocation.
-		$handle_fp = fopen( $dir . '/assembly.part', 'wb' );
+		// Create the file only. ftruncate()-ing to the declared size is tempting
+		// (stable offsets) but on a filesystem without sparse support it allocates
+		// the whole multi-gigabyte file before a single byte arrives — and keeps it
+		// if the visitor closes the tab. finalize() verifies the real length.
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- assembly part file.
+		$handle_fp = fopen( $dir . '/assembly.part', 'ab' );
 
 		if ( $handle_fp ) {
-			ftruncate( $handle_fp, $size );
 			fclose( $handle_fp );
 		}
 
@@ -276,10 +272,17 @@ class VVAI_Upload_Handler {
 		$target    = $directory . '/assembly.part';
 
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- random access write at the chunk offset.
-		$fp = fopen( $target, 'r+b' );
+		$fp = @fopen( $target, 'cb' );
 
 		if ( ! $fp ) {
-			return new WP_Error( 'vvai_write_error', __( 'The partial upload could not be written to disk.', 'viral-video-ai' ) );
+			return new WP_Error( 'vvai_write_error', __( 'The partial upload could not be written to disk. Check that the uploads folder is writable and has free space.', 'viral-video-ai' ) );
+		}
+
+		// A chunk may legitimately arrive after the current end of file (resume or
+		// out-of-order retry): extend with a hole instead of failing. 'cb' keeps the
+		// file if it exists and creates it if the earlier fopen() was skipped.
+		if ( $offset > 0 && filesize( $target ) < $offset ) {
+			ftruncate( $fp, $offset );
 		}
 
 		fseek( $fp, $offset );
@@ -537,7 +540,7 @@ class VVAI_Upload_Handler {
 		if ( is_file( $download ) ) {
 			$size = (int) filesize( $download );
 
-			if ( $size > $max ) {
+			if ( $max > 0 && $size > $max ) {
 				@unlink( $download );
 				@unlink( $target );
 
@@ -623,8 +626,10 @@ class VVAI_Upload_Handler {
 			return new WP_Error( 'vvai_empty_file', __( 'The uploaded file is empty or far too small to be a video.', 'viral-video-ai' ) );
 		}
 
-		if ( $size > $this->settings->max_upload_bytes() ) {
-			return new WP_Error( 'vvai_too_large', __( 'The stored file exceeds this site\'s upload limit.', 'viral-video-ai' ) );
+		$too_big = $this->settings->check_upload_size( $size );
+
+		if ( is_wp_error( $too_big ) ) {
+			return $too_big;
 		}
 
 		$mime = '';

@@ -299,3 +299,64 @@
 }
 .vvai-app.vvai-app--light .vvai-clip__why { color: #3b4657; }
 .vvai-app.vvai-app--light .vvai-error p { color: #8b1d1d; }
+
+
+/* ---------------------------------------------------------------------------
+   Compact layout: one card, three chip rows. The visitor chooses a video,
+   how many clips, and the shape/quality. Everything else is defaulted.
+   --------------------------------------------------------------------------- */
+.vvai-app .vvai-card--main { padding: clamp(16px, 2.4vw, 22px); }
+
+.vvai-app .vvai-controls {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px 18px;
+	align-items: flex-end;
+	margin: 16px 0 14px;
+}
+
+.vvai-chips { display: flex; flex-direction: column; gap: 6px; margin: 0; }
+.vvai-chips > span:first-child { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--vvai-muted); font-weight: 600; }
+.vvai-chips__row { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+
+.vvai-chip {
+	appearance: none;
+	cursor: pointer;
+	font: inherit;
+	font-size: 12.5px;
+	font-weight: 600;
+	color: var(--vvai-muted);
+	background: var(--vvai-surface-2);
+	border: 1px solid var(--vvai-line);
+	border-radius: 999px;
+	padding: 7px 13px;
+	line-height: 1.2;
+	transition: background .14s ease, color .14s ease, border-color .14s ease;
+}
+
+.vvai-chip:hover { color: var(--vvai-text); border-color: #3a475a; }
+.vvai-chip.is-on { background: var(--vvai-accent); border-color: var(--vvai-accent); color: #fff; }
+.vvai-chip:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--vvai-accent-soft); }
+
+.vvai-app .vvai-urlrow { display: flex; gap: 8px; margin-top: 12px; }
+.vvai-app .vvai-urlrow input { flex: 1 1 auto; min-width: 0; }
+.vvai-app .vvai-urlrow .vvai-btn { flex: 0 0 auto; }
+
+.vvai-app .vvai-advanced__grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin: 12px 0 6px; }
+.vvai-app .vvai-advanced__grid label, .vvai-app .vvai-advanced > label { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: var(--vvai-muted); }
+.vvai-app .vvai-advanced__grid input[type="number"] { max-width: 110px; }
+.vvai-app .vvai-advanced__grid span[data-vvai-custom-length], .vvai-app [data-vvai-custom-length] { display: flex; gap: 8px; align-items: flex-end; }
+.vvai-app .vvai-advanced summary { font-size: 12.5px; }
+.vvai-app .vvai-cta { margin-top: 4px; }
+
+/* Small screens: chips wrap, rows stay single column. */
+@media (max-width: 560px) {
+	.vvai-app .vvai-controls { flex-direction: column; align-items: stretch; gap: 14px; }
+	.vvai-app .vvai-chips__row { flex-wrap: wrap; }
+	.vvai-app .vvai-urlrow { flex-direction: column; }
+	.vvai-app .vvai-urlrow .vvai-btn { width: 100%; }
+}
+
+/* Light palette keeps the chips legible. */
+.vvai-app.vvai-app--light .vvai-chip { background: #f2f5fa; color: #46536b; border-color: var(--vvai-line); }
+.vvai-app.vvai-app--light .vvai-chip.is-on { background: var(--vvai-accent); color: #fff; border-color: var(--vvai-accent); }

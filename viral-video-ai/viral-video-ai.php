@@ -3,7 +3,7 @@
  * Plugin Name:       Viral Video AI — AI-Powered Long Video to Viral Shorts Generator
  * Plugin URI:        https://example.com/viral-video-ai
  * Description:       Upload a long video (or paste a supported URL), let your connected AI provider find the most viral moments with exact timestamps, then render real vertical/horizontal short clips with FFmpeg — complete with viral scores, titles, captions, hashtags, previews and secure downloads.
- * Version:           1.0.1
+ * Version:           1.0.2
  * Requires at least: 6.1
  * Requires PHP:      7.4
  * Author:            Viral Video AI
@@ -20,7 +20,7 @@ defined( 'ABSPATH' ) || exit;
 /**
  * Plugin version. Bumped together with the header above.
  */
-define( 'VVAI_VERSION', '1.0.1' );
+define( 'VVAI_VERSION', '1.0.2' );
 
 /**
  * Minimum supported PHP version.

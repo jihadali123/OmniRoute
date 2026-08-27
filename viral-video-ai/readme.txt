@@ -4,7 +4,7 @@ Tags: video, ai, ffmpeg, shorts, reels, tiktok, transcription, clips
 Requires at least: 6.1
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 1.0.1
+Stable tag: 1.0.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -183,6 +183,15 @@ REST: `vvai/v1` — `/providers`, `/connections` (+`/{id}/connect|disconnect|act
 Tests: the plugin ships a standalone suite that runs against a real PHP CLI (`php tests/run-tests.php`) and, when the dev harness is present, drives real FFmpeg renders and a real local provider. See `tests/README.md`.
 
 == Changelog ==
+
+= 1.0.2 =
+* Simplified the frontend and Elementor UI: one card instead of three numbered panels. A visitor now chooses only video → number of clips (1-5 chips) → shape → quality. Everything else (content focus, clip length preset, framing, captions, connection) is collapsed behind a single "Advanced options" disclosure and already defaults to good values, so one click is enough.
+* Elementor panel trimmed to match: the clip-length, focus, custom-direction, min/max duration and framing controls were removed from the panel and fall back to the site defaults. Power users can still set every one of them via shortcode attributes (`[vvai_generator clip_length="medium" focus="dialogue" min_duration="90"]`), which the server keeps validating.
+* Upload size limit removed by default: `max_upload_mb` is now `0` = no plugin cap. Because videos arrive in chunks, a 10 GB source works even when `upload_max_filesize` is 20M. An explicit cap still works and now explains itself; the PHP "no limit" values (0 / -1) are no longer read as tiny limits.
+* Uploads no longer pre-allocate the full declared size on disk, and out-of-order or resumed chunks are handled instead of failing.
+* No REST route can print a raw PHP fatal any more: an unexpected error becomes a readable JSON error in the widget plus a log line with file, line and handler name (Viral Video AI → Diagnostics → Recent log). The generic "There has been a critical error on this website" that the widget previously displayed verbatim is now diagnosable.
+* Media Library became a default source (`upload,url,media`) using core's own picker, so hosts where chunked POSTs are awkward still have a working path.
+* 04-ui-contract suite added: it fails the build if the JavaScript looks up a `data-vvai-*` hook the template does not render (the class of bug that makes a button silently do nothing), and pins the compact layout. 675 assertions across four suites, 0 failures.
 
 = 1.0.1 =
 * Fixed a fatal error on activation for Windows/Local by Flywheel: `fclose()` was called on FFmpeg pipes that `proc_close()` had already closed (PHP 8 raises TypeError for the dead resource). Pipe handling is now resource-guarded and the whole process call is exception-contained, so a host quirk reports a diagnostics row instead of white-screening wp-admin.

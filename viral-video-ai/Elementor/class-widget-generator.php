@@ -108,50 +108,9 @@ class VVAI_Widget_Generator extends \Elementor\Widget_Base {
 					'url'    => __( 'Direct video URL', 'viral-video-ai' ),
 					'media'  => __( 'Media library', 'viral-video-ai' ),
 				),
-				'default'     => array( 'upload', 'url' ),
+				'default'     => array( 'upload', 'url', 'media' ),
 				'label_block' => true,
 				'description' => __( 'Media library selection requires the WordPress media modal and an editor-level permission.', 'viral-video-ai' ),
-			)
-		);
-
-		$this->add_control(
-			'clip_length',
-			array(
-				'label'   => __( 'Clip length', 'viral-video-ai' ),
-				'type'    => \Elementor\Controls_Manager::SELECT,
-				'default' => $settings_service->get( 'default_clip_length' ),
-				'options' => array(
-					'short'  => __( 'Short — 30 to 60 seconds', 'viral-video-ai' ),
-					'medium' => __( 'Medium — 2 to 3 minutes', 'viral-video-ai' ),
-					'long'   => __( 'Long — 4 to 5 minutes', 'viral-video-ai' ),
-					'custom' => __( 'Custom range', 'viral-video-ai' ),
-				),
-			)
-		);
-
-		$this->add_control(
-			'min_duration',
-			array(
-				'label'      => __( 'Minimum duration (s)', 'viral-video-ai' ),
-				'type'       => \Elementor\Controls_Manager::NUMBER,
-				'min'        => 5,
-				'max'        => 900,
-				'step'       => 1,
-				'default'    => 30,
-				'condition'  => array( 'clip_length' => 'custom' ),
-			)
-		);
-
-		$this->add_control(
-			'max_duration',
-			array(
-				'label'      => __( 'Maximum duration (s)', 'viral-video-ai' ),
-				'type'       => \Elementor\Controls_Manager::NUMBER,
-				'min'        => 10,
-				'max'        => 1800,
-				'step'       => 1,
-				'default'    => 60,
-				'condition'  => array( 'clip_length' => 'custom' ),
 			)
 		);
 
@@ -160,28 +119,6 @@ class VVAI_Widget_Generator extends \Elementor\Widget_Base {
 		foreach ( VVAI_Prompt_Builder::focuses() as $key => $focus ) {
 			$focuses[ $key ] = $focus['label'];
 		}
-
-		$this->add_control(
-			'focus',
-			array(
-				'label'   => __( 'Content focus', 'viral-video-ai' ),
-				'type'    => \Elementor\Controls_Manager::SELECT,
-				'default' => $settings_service->get( 'default_focus' ),
-				'options' => $focuses,
-			)
-		);
-
-		$this->add_control(
-			'custom_focus',
-			array(
-				'label'       => __( 'Custom direction', 'viral-video-ai' ),
-				'type'        => \Elementor\Controls_Manager::TEXTAREA,
-				'rows'        => 3,
-				'maxlength'   => 300,
-				'placeholder' => __( 'e.g. only moments where a product is demonstrated on screen', 'viral-video-ai' ),
-				'condition'   => array( 'focus' => 'custom' ),
-			)
-		);
 
 		$this->add_control(
 			'target_clips',
@@ -363,16 +300,15 @@ class VVAI_Widget_Generator extends \Elementor\Widget_Base {
 		$settings = $this->get_settings_for_display();
 		$settings = is_array( $settings ) ? $settings : array();
 
+		// Deliberately few values. Anything the panel no longer offers falls back
+		// to the site defaults, so an editor cannot mis-configure a video.
+		$defaults_service = new VVAI_Settings();
+
 		$normalized = array(
 			'elementor_mode'  => true,
-			'clip_length'     => (string) vvai_array_get( $settings, 'clip_length', 'short' ),
-			'focus'           => (string) vvai_array_get( $settings, 'focus', 'viral' ),
-			'custom_focus'    => (string) vvai_array_get( $settings, 'custom_focus', '' ),
-			'aspect_ratio'    => (string) vvai_array_get( $settings, 'aspect_ratio', '9:16' ),
-			'quality'         => (string) vvai_array_get( $settings, 'quality', '1080p' ),
+			'aspect_ratio'    => (string) vvai_array_get( $settings, 'aspect_ratio', $defaults_service->get( 'default_aspect_ratio' ) ),
+			'quality'         => (string) vvai_array_get( $settings, 'quality', $defaults_service->get( 'default_quality' ) ),
 			'target_clips'    => (int) vvai_array_get( $settings, 'target_clips', 3 ),
-			'min_duration'    => (int) vvai_array_get( $settings, 'min_duration', 30 ),
-			'max_duration'    => (int) vvai_array_get( $settings, 'max_duration', 60 ),
 			'button_text'     => (string) vvai_array_get( $settings, 'button_text', '' ),
 			'show_advanced'   => 'yes' === (string) vvai_array_get( $settings, 'show_advanced', 'yes' ) ? 'yes' : 'no',
 			'show_source'     => implode( ',', array_map( 'strval', (array) vvai_array_get( $settings, 'source_modes', array( 'upload', 'url' ) ) ) ),

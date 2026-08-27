@@ -90,7 +90,7 @@ class VVAI_Rest_Api {
 			'/providers',
 			array(
 				'methods'             => 'GET',
-				'callback'            => array( $this, 'route_providers' ),
+				'callback'            => $this->guard( 'route_providers' ),
 				'permission_callback' => $public,
 			)
 		);
@@ -102,12 +102,12 @@ class VVAI_Rest_Api {
 			array(
 				array(
 					'methods'             => 'GET',
-					'callback'            => array( $this, 'route_list_connections' ),
+					'callback'            => $this->guard( 'route_list_connections' ),
 					'permission_callback' => $manage,
 				),
 				array(
 					'methods'             => 'POST',
-					'callback'            => array( $this, 'route_create_connection' ),
+					'callback'            => $this->guard( 'route_create_connection' ),
 					'permission_callback' => $manage,
 				),
 			)
@@ -119,17 +119,17 @@ class VVAI_Rest_Api {
 			array(
 				array(
 					'methods'             => 'GET',
-					'callback'            => array( $this, 'route_get_connection' ),
+					'callback'            => $this->guard( 'route_get_connection' ),
 					'permission_callback' => $manage,
 				),
 				array(
 					'methods'             => 'PUT',
-					'callback'            => array( $this, 'route_update_connection' ),
+					'callback'            => $this->guard( 'route_update_connection' ),
 					'permission_callback' => $manage,
 				),
 				array(
 					'methods'             => 'DELETE',
-					'callback'            => array( $this, 'route_delete_connection' ),
+					'callback'            => $this->guard( 'route_delete_connection' ),
 					'permission_callback' => $manage,
 				),
 			)
@@ -141,7 +141,7 @@ class VVAI_Rest_Api {
 				'/connections/(?P<id>[a-zA-Z0-9_-]+)/' . $action,
 				array(
 					'methods'             => 'POST',
-					'callback'            => array( $this, 'route_connection_action' ),
+					'callback'            => $this->guard( 'route_connection_action' ),
 					'permission_callback' => $manage,
 					'args'                => array( 'action' => array( 'sanitize_callback' => 'sanitize_key' ) ),
 				)
@@ -153,7 +153,7 @@ class VVAI_Rest_Api {
 			'/connections/verify',
 			array(
 				'methods'             => 'POST',
-				'callback'            => array( $this, 'route_verify_candidate' ),
+				'callback'            => $this->guard( 'route_verify_candidate' ),
 				'permission_callback' => $manage,
 			)
 		);
@@ -164,7 +164,7 @@ class VVAI_Rest_Api {
 			'/uploads',
 			array(
 				'methods'             => 'POST',
-				'callback'            => array( $this, 'route_upload_init' ),
+				'callback'            => $this->guard( 'route_upload_init' ),
 				'permission_callback' => $generate,
 			)
 		);
@@ -174,7 +174,7 @@ class VVAI_Rest_Api {
 			'/uploads/(?P<handle>[a-zA-Z0-9_-]+)/chunk',
 			array(
 				'methods'             => 'POST',
-				'callback'            => array( $this, 'route_upload_chunk' ),
+				'callback'            => $this->guard( 'route_upload_chunk' ),
 				'permission_callback' => $generate,
 			)
 		);
@@ -184,7 +184,7 @@ class VVAI_Rest_Api {
 			'/uploads/(?P<handle>[a-zA-Z0-9_-]+)/complete',
 			array(
 				'methods'             => 'POST',
-				'callback'            => array( $this, 'route_upload_complete' ),
+				'callback'            => $this->guard( 'route_upload_complete' ),
 				'permission_callback' => $generate,
 			)
 		);
@@ -194,7 +194,7 @@ class VVAI_Rest_Api {
 			'/uploads/(?P<handle>[a-zA-Z0-9_-]+)',
 			array(
 				'methods'             => 'GET',
-				'callback'            => array( $this, 'route_upload_status' ),
+				'callback'            => $this->guard( 'route_upload_status' ),
 				'permission_callback' => $generate,
 			)
 		);
@@ -204,7 +204,7 @@ class VVAI_Rest_Api {
 			'/sources/url',
 			array(
 				'methods'             => 'POST',
-				'callback'            => array( $this, 'route_source_url' ),
+				'callback'            => $this->guard( 'route_source_url' ),
 				'permission_callback' => $generate,
 			)
 		);
@@ -214,7 +214,7 @@ class VVAI_Rest_Api {
 			'/sources/media',
 			array(
 				'methods'             => 'POST',
-				'callback'            => array( $this, 'route_source_media' ),
+				'callback'            => $this->guard( 'route_source_media' ),
 				'permission_callback' => $generate,
 			)
 		);
@@ -226,12 +226,12 @@ class VVAI_Rest_Api {
 			array(
 				array(
 					'methods'             => 'GET',
-					'callback'            => array( $this, 'route_list_jobs' ),
+					'callback'            => $this->guard( 'route_list_jobs' ),
 					'permission_callback' => $manage,
 				),
 				array(
 					'methods'             => 'POST',
-					'callback'            => array( $this, 'route_create_job' ),
+					'callback'            => $this->guard( 'route_create_job' ),
 					'permission_callback' => $generate,
 				),
 			)
@@ -243,12 +243,12 @@ class VVAI_Rest_Api {
 			array(
 				array(
 					'methods'             => 'GET',
-					'callback'            => array( $this, 'route_get_job' ),
+					'callback'            => $this->guard( 'route_get_job' ),
 					'permission_callback' => $read_job,
 				),
 				array(
 					'methods'             => 'DELETE',
-					'callback'            => array( $this, 'route_delete_job' ),
+					'callback'            => $this->guard( 'route_delete_job' ),
 					'permission_callback' => array( $this, 'can_modify_job' ),
 				),
 			)
@@ -259,7 +259,7 @@ class VVAI_Rest_Api {
 			'/jobs/(?P<id>\d+)/status',
 			array(
 				'methods'             => 'GET',
-				'callback'            => array( $this, 'route_job_status' ),
+				'callback'            => $this->guard( 'route_job_status' ),
 				'permission_callback' => $read_job,
 			)
 		);
@@ -269,7 +269,7 @@ class VVAI_Rest_Api {
 			'/jobs/(?P<id>\d+)/results',
 			array(
 				'methods'             => 'GET',
-				'callback'            => array( $this, 'route_job_results' ),
+				'callback'            => $this->guard( 'route_job_results' ),
 				'permission_callback' => $read_job,
 			)
 		);
@@ -280,7 +280,7 @@ class VVAI_Rest_Api {
 				'/jobs/(?P<id>\d+)/' . $action,
 				array(
 					'methods'             => 'POST',
-					'callback'            => array( $this, 'route_job_action' ),
+					'callback'            => $this->guard( 'route_job_action' ),
 					'permission_callback' => array( $this, 'can_modify_job' ),
 					'args'                => array( 'action' => array( 'sanitize_callback' => 'sanitize_key' ) ),
 				)
@@ -293,7 +293,7 @@ class VVAI_Rest_Api {
 			'/clips/(?P<id>\d+)/file',
 			array(
 				'methods'             => 'GET',
-				'callback'            => array( $this, 'route_clip_file' ),
+				'callback'            => $this->guard( 'route_clip_file' ),
 				'permission_callback' => $public,
 				'args'                => array(
 					'mode'  => array( 'sanitize_callback' => 'sanitize_key' ),
@@ -308,7 +308,7 @@ class VVAI_Rest_Api {
 			'/diagnostics',
 			array(
 				'methods'             => 'GET',
-				'callback'            => array( $this, 'route_diagnostics' ),
+				'callback'            => $this->guard( 'route_diagnostics' ),
 				'permission_callback' => $manage,
 			)
 		);
@@ -319,12 +319,12 @@ class VVAI_Rest_Api {
 			array(
 				array(
 					'methods'             => 'GET',
-					'callback'            => array( $this, 'route_get_settings' ),
+					'callback'            => $this->guard( 'route_get_settings' ),
 					'permission_callback' => $manage,
 				),
 				array(
 					'methods'             => 'POST',
-					'callback'            => array( $this, 'route_save_settings' ),
+					'callback'            => $this->guard( 'route_save_settings' ),
 					'permission_callback' => $manage,
 				),
 			)
@@ -336,10 +336,79 @@ class VVAI_Rest_Api {
 			'/config',
 			array(
 				'methods'             => 'GET',
-				'callback'            => array( $this, 'route_config' ),
+				'callback'            => $this->guard( 'route_config' ),
 				'permission_callback' => $public,
 			)
 		);
+	}
+
+	/**
+	 * Wrap a route callback so a server-side error can never print a raw fatal.
+	 *
+	 * WordPress turns an uncaught throwable into the "There has been a critical
+	 * error on this website" page, which the frontend cannot read and the site
+	 * owner cannot diagnose. Here it becomes a normal JSON error, while the real
+	 * class/message and file:line go to the plugin log (never any secret).
+	 *
+	 * @param string $method Handler method name.
+	 * @return callable
+	 */
+	protected function guard( $method ) {
+		return function ( $request ) use ( $method ) {
+			try {
+				return $this->{$method}( $request );
+			} catch ( \Throwable $throwable ) {
+				$this->plugin->logger()->critical(
+					'Rest handler crashed',
+					array(
+						'handler' => $method,
+						'class'   => get_class( $throwable ),
+						'message' => substr( $throwable->getMessage(), 0, 300 ),
+						'file'    => $this->privacy_safe_path( $throwable->getFile() ),
+						'line'    => (int) $throwable->getLine(),
+					)
+				);
+
+				$message = __( 'The server hit an unexpected error while handling this request. The exact cause was written to the plugin log: Viral Video AI → Diagnostics → Recent log.', 'viral-video-ai' );
+
+				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+					$message .= ' ' . get_class( $throwable ) . ': ' . $throwable->getMessage();
+				}
+
+				return new WP_Error(
+					'vvai_server_error',
+					$message,
+					array(
+						'status'  => 500,
+						'handler' => $method,
+					)
+				);
+			}
+		};
+	}
+
+	/**
+	 * Keep the server root out of log lines.
+	 *
+	 * @param string $path Absolute path.
+	 * @return string
+	 */
+	protected function privacy_safe_path( $path ) {
+		$path = wp_normalize_path( (string) $path );
+		$root = wp_normalize_path( (string) ABSPATH );
+
+		if ( '' !== $root && 0 === strpos( $path, $root ) ) {
+			return substr( $path, strlen( $root ) );
+		}
+
+		$uploads = wp_get_upload_dir();
+		$base    = wp_normalize_path( (string) ( $uploads['basedir'] ?? '' ) );
+
+		if ( '' !== $base && 0 === strpos( $path, $base ) ) {
+			return 'uploads' . substr( $path, strlen( $base ) );
+		}
+
+		return basename( $path );
 	}
 
 	/**

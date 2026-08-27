@@ -21,6 +21,45 @@
 	function qs(root, sel) { return root.querySelector(sel); }
 	function qsa(root, sel) { return Array.prototype.slice.call(root.querySelectorAll(sel)); }
 
+	/**
+	 * Turn a row of .vvai-chip buttons into a single-value control.
+	 *
+	 * Returns a getter for the selected value, and keeps keyboard/focus sane.
+	 */
+	function chipGroup(root, selector, attribute, initial) {
+		var group = root.querySelector(selector);
+
+		if (!group) { return function () { return null; }; }
+
+		var buttons = Array.prototype.slice.call(group.querySelectorAll('[data-' + attribute + ']'));
+
+		if (!buttons.length) { return function () { return null; }; }
+
+		function select(button) {
+			buttons.forEach(function (b) {
+				var on = b === button;
+				b.classList.toggle('is-on', on);
+				b.setAttribute('aria-pressed', on ? 'true' : 'false');
+			});
+		}
+
+		buttons.forEach(function (button) {
+			if (initial && button.getAttribute('data-' + attribute) === String(initial)) {
+				select(button);
+			}
+
+			button.addEventListener('click', function () {
+				select(button);
+				root.dispatchEvent(new CustomEvent('vvai:change', { bubbles: true }));
+			});
+		});
+
+		return function () {
+			var active = buttons.filter(function (b) { return b.classList.contains('is-on'); })[0];
+			return active ? active.getAttribute('data-' + attribute) : buttons[0].getAttribute('data-' + attribute);
+		};
+	}
+
 	function human(bytes) {
 		bytes = Number(bytes) || 0;
 		var units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -327,6 +366,7 @@
 			onNote: this.note.bind(this)
 		});
 
+		this.pickChips();
 		this.bind();
 		this.renderDefaults();
 		this.syncEnabled();
@@ -349,6 +389,26 @@
 
 	App.prototype.el = function (name) {
 		return qs(this.root, '[data-vvai-' + name + ']');
+	};
+
+	/**
+	 * Compact controls (clips / shape / quality / framing) are button rows.
+	 */
+	App.prototype.pickChips = function () {
+		var defaults = this.config.defaults || {};
+
+		this.getAspect = chipGroup(this.root, '[data-vvai-aspect-group]', 'vvai-aspect', defaults.aspect);
+		this.getQuality = chipGroup(this.root, '[data-vvai-quality-group]', 'vvai-quality', defaults.quality);
+		this.getCrop = chipGroup(this.root, '[data-vvai-crop-group]', 'vvai-crop', defaults.cropMode);
+		this.clipCount = Math.max(1, Math.min(5, parseInt(defaults.targetClips, 10) || 3));
+
+		var countGetter = chipGroup(this.root, '[data-vvai-clips-group]', 'vvai-clip-count', this.clipCount);
+
+		this.getCount = function () {
+			var value = parseInt(countGetter(), 10);
+
+			return isNaN(value) ? 3 : value;
+		};
 	};
 
 	App.prototype.bind = function () {
@@ -393,6 +453,12 @@
 
 		if (urlButton) {
 			urlButton.addEventListener('click', function () { self.importUrl(); });
+		}
+
+		var mediaButton = this.el('media-pick');
+
+		if (mediaButton) {
+			mediaButton.addEventListener('click', function () { self.pickMedia(); });
 		}
 
 		var clear = this.el('source-clear');
@@ -446,11 +512,11 @@
 	};
 
 	App.prototype.toggleCustomLength = function () {
-		var checked = qs(this.root, '[data-vvai-length]:checked');
+		var length = qs(this.root, '[data-vvai-length]');
 		var wrap = this.el('custom-length');
 
 		if (wrap) {
-			wrap.hidden = !(checked && checked.value === 'custom');
+			wrap.hidden = !(length && length.value === 'custom');
 		}
 	};
 
@@ -465,6 +531,104 @@
 		if (label) { button.textContent = label; }
 		else if (!busy) { button.textContent = this.originalLabel || button.textContent; }
 		else { this.originalLabel = this.originalLabel || button.textContent; button.textContent = this.str('generating', 'Working…'); }
+	};
+
+	/**
+	 * Media Library picker.
+	 *
+	 * Uses the core wp.media frame when the site loaded it; otherwise asks for the
+	 * attachment id, because /sources/media only needs that. Both paths end up in
+	 * the same server-side import (which sniffs the container, as always).
+	 */
+	App.prototype.pickMedia = function () {
+		var self = this;
+		var field = this.el('media-search');
+
+		function accept(attachment) {
+			var id = attachment && attachment.id ? attachment.id : attachment;
+
+			if (!id) { return; }
+
+			if (field) { field.value = 'Attachment #' + id; }
+
+			self.errorClear();
+			self.importMedia(id);
+		}
+
+		if (window.wp && window.wp.media) {
+			var frame = window.wp.media({
+				title: this.str('mediaTitle', 'Pick a video'),
+				library: { type: 'video' },
+				multiple: false,
+				button: { text: this.str('mediaUse', 'Use this video') }
+			});
+
+			frame.on('select', function () {
+				var model = frame.state().get('selection').first();
+
+				if (!model) { return; }
+
+				var json = model.toJSON();
+
+				if (json.type !== 'video' && !(json.subtype && json.subtype === 'mp4')) {
+					self.error(self.str('mediaNotVideo', 'Pick a video file from the library.'));
+					return;
+				}
+
+				accept(json.id);
+			});
+
+			frame.open();
+			return;
+		}
+
+		var answer = window.prompt(this.str('mediaPrompt', 'Enter the Media Library attachment id of a video:'), '');
+
+		if (answer && /^[0-9]+$/.test(String(answer).trim())) {
+			accept(parseInt(String(answer).trim(), 10));
+		}
+	};
+
+	/**
+	 * Import a Media Library attachment as the job source.
+	 */
+	App.prototype.importMedia = function (attachmentId) {
+		var self = this;
+		var button = this.el('media-pick');
+
+		if (button) { button.disabled = true; }
+
+		this.errorClear();
+
+		this.api.post('/sources/media', { attachment_id: attachmentId }).then(function (result) {
+			self.sourceRef = result.sourceRef;
+			self.sourceInfo = result;
+			self.file = null;
+
+			self.showSource({ name: result.name, size: result.size });
+
+			var box = self.el('upload');
+
+			if (box) {
+				box.hidden = false;
+				var label = qs(box, '[data-vvai-upload-label]');
+				if (label) { label.textContent = self.str('done', 'File ready'); }
+				var bar = qs(box, '[data-vvai-upload-bar]');
+				if (bar) { bar.style.width = '100%'; }
+				var pct = qs(box, '[data-vvai-upload-pct]');
+				if (pct) { pct.textContent = '100%'; }
+				var bytes = qs(box, '[data-vvai-upload-bytes]');
+				if (bytes) { bytes.textContent = human(result.size); }
+			}
+
+			self.syncEnabled();
+
+			if (self.config.autoStart) { self.generate(); }
+		}).catch(function (error) {
+			self.error((error && error.message) ? error.message : 'The media library item could not be read.');
+		}).then(function () {
+			if (button) { button.disabled = false; }
+		});
 	};
 
 	App.prototype.error = function (message, hint) {
@@ -506,7 +670,9 @@
 			return;
 		}
 
-		if (maxBytes && file.size > maxBytes) {
+		// maxUploadBytes is 0 when the site sets no cap: the server decides, and
+		// because chunks are small the total size is not limited by PHP settings.
+		if (maxBytes > 0 && file.size > maxBytes) {
 			this.error(this.str('uploadTooLarge', 'That file is larger than this site allows.') + ' (' + human(maxBytes) + ')');
 			return;
 		}
@@ -620,33 +786,51 @@
 		}
 	};
 
+	/**
+	 * The payload for POST /jobs.
+	 *
+	 * Controls that the (deliberately) minimal UI does not render are omitted
+	 * entirely rather than sent as false/0, so the server keeps its own defaults —
+	 * e.g. captions stay enabled for .srt when the advanced panel is hidden.
+	 */
 	App.prototype.options = function () {
-		var length = qs(this.root, '[data-vvai-length]:checked');
-		var aspect = qs(this.root, '[data-vvai-aspect]:checked');
-		var crop = qs(this.root, '[data-vvai-crop]:checked');
-		var focus = this.el('focus');
+		var length = qs(this.root, '[data-vvai-length]');
+		var focus = qs(this.root, '[data-vvai-focus]');
 		var quality = this.el('quality');
-		var clips = this.el('target-clips');
 		var min = this.el('min-duration');
 		var max = this.el('max-duration');
 		var burn = this.el('burn');
 		var srt = this.el('srt');
 		var connection = this.el('connection');
 
-		return {
-			clip_length: length ? length.value : 'short',
-			focus: focus ? focus.value : 'viral',
-			custom_focus: focus && focus.value === 'custom' ? (qs(this.root, '[data-vvai-custom-focus]') || {}).value || '' : '',
-			aspect_ratio: aspect ? aspect.value : '9:16',
-			quality: quality ? quality.value : '1080p',
-			target_clips: clips ? parseInt(clips.value, 10) || 3 : 3,
-			min_duration: min ? parseInt(min.value, 10) || 0 : 0,
-			max_duration: max ? parseInt(max.value, 10) || 0 : 0,
-			crop_mode: crop ? crop.value : 'smart',
-			burn_captions: !!(burn && burn.checked),
-			generate_srt: !!(srt && srt.checked),
-			connection: connection ? connection.value : ''
+		var options = {
+			target_clips: this.getCount ? this.getCount() : 3,
+			aspect_ratio: this.getAspect ? this.getAspect() : '9:16',
+			clip_length: length ? length.value : 'short'
 		};
+
+		if (focus) {
+			options.focus = focus.value;
+			options.custom_focus = focus.value === 'custom' ? ((qs(this.root, '[data-vvai-custom-focus]') || {}).value || '') : '';
+		}
+
+		if (this.getQuality) { options.quality = this.getQuality(); }
+		if (this.getCrop) { options.crop_mode = this.getCrop(); }
+
+		if (min && max) {
+			options.min_duration = parseInt(min.value, 10) || 0;
+			options.max_duration = parseInt(max.value, 10) || 0;
+		}
+
+		// Only send the caption switches when the visitor can actually see them.
+		if (burn) { options.burn_captions = !!burn.checked; }
+		if (srt) { options.generate_srt = !!srt.checked; }
+		if (connection) { options.connection = connection.value || ''; }
+
+		// A <select data-vvai-quality> from an older/custom template still works.
+		if (!options.quality && quality) { options.quality = quality.value; }
+
+		return options;
 	};
 
 	App.prototype.importUrl = function () {
@@ -698,7 +882,7 @@
 
 		var hint = this.el('hint');
 
-		if (hint) {
+		if (hint && !hint.hasAttribute('data-vvai-static')) {
 			if (this.config.requireLogin && !this.config.loggedIn) {
 				hint.textContent = this.str('loginRequired', 'Please log in to generate clips.');
 			} else if (this.config.hasConnection === false && !this.config.connectionError) {

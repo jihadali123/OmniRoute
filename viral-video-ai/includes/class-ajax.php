@@ -469,18 +469,10 @@ class VVAI_Ajax {
 			return new WP_Error( 'vvai_bad_upload', __( 'The upload did not arrive correctly.', 'viral-video-ai' ) );
 		}
 
-		$limit = (int) $this->plugin->settings()->max_upload_bytes();
+		$too_big = $this->plugin->settings()->check_upload_size( (int) $file['size'] );
 
-		if ( (int) $file['size'] > $limit ) {
-			return new WP_Error(
-				'vvai_too_large',
-				sprintf(
-					/* translators: 1: file size, 2: limit. */
-					__( 'That file is %1$s; this site accepts up to %2$s per upload.', 'viral-video-ai' ),
-					vvai_human_size( (int) $file['size'] ),
-					vvai_human_size( $limit )
-				)
-			);
+		if ( is_wp_error( $too_big ) ) {
+			return $too_big;
 		}
 
 		// Route the whole file through the chunking engine as a single chunk so

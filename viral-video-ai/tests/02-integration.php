@@ -542,10 +542,29 @@ $runner->test( 'wrong types are refused before they are stored', function () use
 	$runner->assert( is_wp_error( $final ), 'incomplete upload must not finalize' );
 	$runner->contains( 'incomplete', strtolower( $final->get_error_message() ) );
 
-	// 4. Oversized file refused up front.
-	$huge = $uploads->init_session( 1, array( 'name' => 'big.mp4', 'size' => (int) $plugin->settings()->max_upload_bytes() + 1, 'chunk' => 4096 ) );
-	$runner->assert( is_wp_error( $huge ), 'oversized must be refused' );
-	$runner->assert( (bool) preg_match( '/larger|at most/i', (string) $huge->get_error_message() ), 'oversized message must explain the cap: ' . (string) $huge->get_error_message() );
+	// 4. An explicit cap is enforced when the site sets one (0 = unlimited is the
+	//    default, so this case has to configure a limit first).
+	$plugin->settings()->override( 'max_upload_mb', 500 );
+
+	$huge = $uploads->init_session( 1, array( 'name' => 'big.mp4', 'size' => 501 * MB_IN_BYTES, 'chunk' => 4096 ) );
+
+	$runner->assert( is_wp_error( $huge ), 'oversized must be refused when a cap is set' );
+	$runner->same( 'vvai_too_large', $huge->get_error_code() );
+
+	// ...and with 0 the same file is accepted (chunking means the host limit is
+	// irrelevant to the total size).
+	$plugin->settings()->override( 'max_upload_mb', 0 );
+
+	$free = $uploads->init_session( 1, array( 'name' => 'big.mp4', 'size' => 8 * GB_IN_BYTES, 'chunk' => 4096 ) );
+
+	$runner->assert( ! is_wp_error( $free ), 'no cap means no refusal' );
+
+	if ( ! is_wp_error( $free ) ) {
+		$uploads->discard( (string) $free['handle'] );
+	}
+
+	$plugin->settings()->clear_overrides();
+	$runner->assert( (bool) preg_match( '/at most|no cap/i', (string) $huge->get_error_message() ), 'oversized message must explain the cap: ' . (string) $huge->get_error_message() );
 
 	// 5. Path traversal attempts in the name never escape the storage dir.
 	$evil = $uploads->init_session( 1, array( 'name' => '../../../../wp-config.php.mp4', 'size' => 2048, 'chunk' => 4096 ) );

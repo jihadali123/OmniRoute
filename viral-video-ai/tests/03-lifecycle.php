@@ -238,7 +238,8 @@ $runner->test( 'the widget registers its controls and renders the generator', fu
 
 	$controls = $widget->registered;
 
-	foreach ( array( 'clip_length', 'focus', 'aspect_ratio', 'quality', 'target_clips', 'source_modes', 'button_text', 'min_duration', 'max_duration', 'custom_focus', 'show_advanced' ) as $required ) {
+	// The panel deliberately exposes little: the rest is defaulted server-side.
+	foreach ( array( 'aspect_ratio', 'quality', 'target_clips', 'source_modes', 'button_text', 'show_advanced' ) as $required ) {
 		$runner->assert( isset( $controls[ $required ] ), 'control missing: ' . $required );
 	}
 
@@ -247,11 +248,9 @@ $runner->test( 'the widget registers its controls and renders the generator', fu
 	$runner->assert( isset( $widget->sections['vvai_style'] ), 'style section present' );
 
 	// Custom min/max must only show for the custom preset (progressive disclosure).
-	$runner->same(
-		array( 'clip_length' => 'custom' ),
-		(array) ( $controls['min_duration']['condition'] ?? array() ),
-		'min duration is hidden unless custom is chosen'
-	);
+	foreach ( array( 'clip_length', 'min_duration', 'max_duration', 'focus', 'custom_focus' ) as $hidden ) {
+		$runner->assert( ! isset( $controls[ $hidden ] ), 'panel should not expose ' . $hidden );
+	}
 
 	$render = new ReflectionMethod( $widget, 'render' );
 	$render->setAccessible( true );

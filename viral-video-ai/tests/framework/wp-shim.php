@@ -2141,3 +2141,15 @@ if ( ! function_exists( 'human_time_diff' ) ) {
 if ( ! function_exists( 'get_query_var' ) ) {
 	function get_query_var( $var, $default = '' ) { return $default; }
 }
+
+if ( ! function_exists( 'wp_enqueue_media' ) ) {
+	function wp_enqueue_media( $args = array() ) { $GLOBALS['vvai_test']['assets'][] = array( 'wp_enqueue_media', $args ); return true; }
+}
+
+if ( ! function_exists( 'wp_script_is' ) ) {
+	function wp_script_is( $handle, $status = 'enqueued' ) { return false; }
+}
+
+if ( ! function_exists( 'wp_style_is' ) ) {
+	function wp_style_is( $handle, $status = 'enqueued' ) { return false; }
+}

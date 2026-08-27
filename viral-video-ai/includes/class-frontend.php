@@ -51,6 +51,16 @@ class VVAI_Frontend {
 			wp_enqueue_script( 'vvai-widget' );
 		}
 
+		// The Media Library picker reuses core's own modal, but only when the
+		// source list actually offers it and the visitor may upload files.
+		$modes = array_map( 'trim', explode( ',', (string) vvai_array_get( $settings, 'show_source', 'upload,url,media' ) ) );
+
+		if ( in_array( 'media', $modes, true ) && current_user_can( 'upload_files' ) ) {
+			// Core's own guard makes repeat calls cheap; no need to introspect the
+			// script stack here.
+			wp_enqueue_media();
+		}
+
 		if ( self::$assets_done ) {
 			return;
 		}

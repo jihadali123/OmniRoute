@@ -57,7 +57,9 @@ class VVAI_Settings {
 			'max_execution_budget'     => 25,
 
 			// Uploads.
-			'max_upload_mb'            => 2048,
+			// 0 = no plugin-imposed cap: uploads are chunked, so the host's
+			// per-request limit only has to fit one chunk, not the whole video.
+			'max_upload_mb'            => 0,
 			'upload_chunk_size'        => 5242880,
 			'allowed_extensions'       => array( 'mp4', 'mov', 'webm', 'mkv', 'm4v', 'avi' ),
 
@@ -313,7 +315,10 @@ class VVAI_Settings {
 				return vvai_sanitize_int( $value, 5, 240, 25 );
 
 			case 'max_upload_mb':
-				return vvai_sanitize_int( $value, 10, 51200, 2048 );
+				// 0 is a meaningful value (unlimited) and must survive sanitizing.
+				$parsed = vvai_sanitize_int( $value, 0, 2621440, 0 );
+
+				return 0 === $parsed ? 0 : max( 10, $parsed );
 
 			case 'upload_chunk_size':
 				return vvai_sanitize_int( $value, 262144, 33554432, 5242880 );
@@ -503,18 +508,51 @@ class VVAI_Settings {
 	 * @return int
 	 */
 	public function max_upload_bytes() {
-		$configured = (int) $this->get( 'max_upload_mb' ) * MB_IN_BYTES;
-		$server     = min(
-			vvai_shorthand_to_bytes( (string) ini_get( 'upload_max_filesize' ) ) ?: PHP_INT_MAX,
-			vvai_shorthand_to_bytes( (string) ini_get( 'post_max_size' ) ) ?: PHP_INT_MAX
-		);
+		$mb = (int) $this->get( 'max_upload_mb' );
+
+		if ( $mb > 0 ) {
+			$server = $this->server_upload_limit_bytes();
+
+			// A host limit below the configured cap still wins: the plugin cannot
+			// make PHP accept a bigger POST body.
+			$effective = $server > 0 ? min( $mb * MB_IN_BYTES, $server ) : $mb * MB_IN_BYTES;
+		} else {
+			// Unlimited. Deliberately NOT folded with the server limits: chunks are
+			// what hit post_max_size, so a 12 GB source works on a 20M host.
+			$effective = 0;
+		}
 
 		/**
 		 * Filter the maximum accepted upload size in bytes.
 		 *
-		 * @param int $limit Bytes.
+		 * @param int $limit Bytes. 0 = unlimited.
 		 */
-		return (int) apply_filters( 'vvai_max_upload_bytes', min( $configured, $server ) );
+		return (int) apply_filters( 'vvai_max_upload_bytes', $effective );
+	}
+
+	/**
+	 * Is this many bytes acceptable for upload?
+	 *
+	 * @param int $bytes Size in bytes.
+	 * @return true|WP_Error
+	 */
+	public function check_upload_size( $bytes ) {
+		$bytes = (int) $bytes;
+		$limit = (int) $this->max_upload_bytes();
+
+		if ( $limit <= 0 || $bytes <= $limit ) {
+			return true;
+		}
+
+		return new WP_Error(
+			'vvai_too_large',
+			sprintf(
+				/* translators: 1: file size, 2: allowed size. */
+				__( 'That file is %1$s, but this site is configured to accept at most %2$s. Raise the limit in Viral Video AI → Settings (set 0 for no cap) or increase upload_max_filesize / post_max_size on the server.', 'viral-video-ai' ),
+				vvai_human_size( $bytes, 2 ),
+				vvai_human_size( $limit, 2 )
+			)
+		);
 	}
 
 	/**
@@ -523,10 +561,36 @@ class VVAI_Settings {
 	 * @return int
 	 */
 	public function server_upload_limit_bytes() {
-		return (int) min(
-			vvai_shorthand_to_bytes( (string) ini_get( 'upload_max_filesize' ) ) ?: PHP_INT_MAX,
-			vvai_shorthand_to_bytes( (string) ini_get( 'post_max_size' ) ) ?: PHP_INT_MAX
+		return self::php_size_limit(
+			(string) ini_get( 'upload_max_filesize' ),
+			(string) ini_get( 'post_max_size' )
 		);
+	}
+
+	/**
+	 * Turn two php.ini size strings into one effective byte limit.
+	 *
+	 * Exposed as a static helper because upload_max_filesize/post_max_size are
+	 * PHP_INI_PERDIR and cannot be set at runtime, so this is the only honest way
+	 * to test the "no limit" handling.
+	 *
+	 * @param string $upload upload_max_filesize value.
+	 * @param string $post   post_max_size value.
+	 * @return int Bytes, or 0 when neither imposes a limit.
+	 */
+	public static function php_size_limit( $upload, $post ) {
+		$candidates = array();
+
+		foreach ( array( $upload, $post ) as $value ) {
+			$parsed = vvai_shorthand_to_bytes( (string) $value );
+
+			// php.ini uses 0 and -1 for "no limit".
+			if ( $parsed > 0 ) {
+				$candidates[] = $parsed;
+			}
+		}
+
+		return $candidates ? (int) min( $candidates ) : 0;
 	}
 
 	/**

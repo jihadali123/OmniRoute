@@ -68,7 +68,7 @@ $vvai_sections = array(
 		'fields' => array(
 			array( 'ffmpeg_path', __( 'FFmpeg path', 'viral-video-ai' ), 'text', array( 'placeholder' => 'ffmpeg' ) ),
 			array( 'ffprobe_path', __( 'FFprobe path', 'viral-video-ai' ), 'text', array( 'placeholder' => 'ffprobe' ) ),
-			array( 'max_upload_mb', __( 'Maximum upload (MB)', 'viral-video-ai' ), 'number', array( 'min' => 10, 'max' => 51200, 'hint' => sprintf( /* translators: %s: size. */ __( 'Effective ceiling on this server: %s.', 'viral-video-ai' ), size_format( (int) $limits['effective'] ) ) ) ),
+			array( 'max_upload_mb', __( 'Maximum upload (MB - 0 means no limit)', 'viral-video-ai' ), 'number', array( 'min' => 0, 'max' => 2621440, 'hint' => sprintf( /* translators: %s: size. */ __( 'Videos arrive in chunks, so only one chunk has to fit the PHP limits. Current ceiling: %s. Set 0 for no cap.', 'viral-video-ai' ), size_format( (int) $limits['effective'] ) ) ) ),
 			array( 'upload_chunk_size', __( 'Upload chunk size (bytes)', 'viral-video-ai' ), 'number', array( 'min' => 262144, 'max' => 33554432, 'step' => 65536 ) ),
 			array( 'process_timeout', __( 'FFmpeg / API timeout (seconds)', 'viral-video-ai' ), 'number', array( 'min' => 30, 'max' => 14400 ) ),
 			array( 'max_execution_budget', __( 'Work budget per request (seconds)', 'viral-video-ai' ), 'number', array( 'min' => 5, 'max' => 240, 'hint' => __( 'The pipeline yields after this and resumes in the background, so max_execution_time is never hit.', 'viral-video-ai' ) ) ),
