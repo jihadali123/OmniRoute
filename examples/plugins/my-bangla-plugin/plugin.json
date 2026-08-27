@@ -1,0 +1,57 @@
+{
+  "name": "my-bangla-plugin",
+  "version": "1.0.0",
+  "description": "Amar prothom OmniRoute plugin - request/response modify, logging, ar blocking er example",
+  "author": "Tumi",
+  "license": "MIT",
+  "main": "index.mjs",
+  "source": "local",
+  "tags": ["bangla", "example", "starter", "custom"],
+  "requires": {
+    "omniroute": ">=3.8.0",
+    "permissions": []
+  },
+  "hooks": {
+    "onRequest": true,
+    "onResponse": true,
+    "onError": true,
+    "onInstall": true,
+    "onActivate": true,
+    "onDeactivate": true,
+    "onUninstall": true
+  },
+  "enabledByDefault": true,
+  "configSchema": {
+    "enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Plugin on/off koro"
+    },
+    "greeting": {
+      "type": "string",
+      "default": "Assalamu Alaikum! OmniRoute e swagotom!",
+      "description": "Custom greeting message"
+    },
+    "blockBadWords": {
+      "type": "boolean",
+      "default": false,
+      "description": "Kharap word block korbe kina"
+    },
+    "badWords": {
+      "type": "string",
+      "default": "spam,abuse",
+      "description": "Comma diye kharap word list (jodi blockBadWords on thake)"
+    },
+    "logLevel": {
+      "type": "select",
+      "default": "info",
+      "enum": ["debug", "info", "warn", "none"],
+      "description": "Koto detail log dekhabe"
+    },
+    "addMetadata": {
+      "type": "boolean",
+      "default": true,
+      "description": "Response e custom metadata add korbe kina"
+    }
+  }
+}
