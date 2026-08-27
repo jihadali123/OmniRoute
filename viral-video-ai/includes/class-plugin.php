@@ -419,6 +419,24 @@ final class VVAI_Plugin {
 	}
 
 	/**
+	 * Admin screens service (only present on admin requests).
+	 *
+	 * @return VVAI_Admin|null
+	 */
+	public function admin() {
+		return $this->get( 'admin' );
+	}
+
+	/**
+	 * Elementor integration service (only present when Elementor is loaded).
+	 *
+	 * @return VVAI_Elementor_Manager|null
+	 */
+	public function elementor() {
+		return $this->get( 'elementor' );
+	}
+
+	/**
 	 * Whether the frontend asset/UI layer may render.
 	 *
 	 * @return bool

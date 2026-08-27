@@ -12,8 +12,6 @@
  */
 
 defined( 'ABSPATH' ) || exit;
-
-$vvai_view = get_query_var( 'vvai_job' );
 ?>
 <div class="wrap vvai-wrap" data-vvai-jobs>
 	<h1><?php esc_html_e( 'Video AI Jobs', 'viral-video-ai' ); ?></h1>
@@ -58,7 +56,6 @@ $vvai_view = get_query_var( 'vvai_job' );
 			<?php
 			$vvai_payload = $jobs[ $index ];
 			$vvai_source  = (string) $row['source_path'];
-			$vvai_media   = (array) $row['media'] ?? array();
 			?>
 			<tr data-job="<?php echo (int) $row['id']; ?>">
 				<td>

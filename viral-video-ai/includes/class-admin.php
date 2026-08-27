@@ -280,10 +280,14 @@ class VVAI_Admin {
 	public function page_dashboard() {
 		$report = $this->plugin->diagnostics()->report();
 
+		$active = $this->plugin->connections()->get_active( false );
+
 		$data = array(
 			'stats'        => $this->plugin->jobs()->stats(),
 			'summary'      => $this->plugin->diagnostics()->summary(),
-			'active'       => $this->plugin->connections()->get_active( false ),
+			// The view reads the public (camelCase, secret-free) shape — passing the
+			// raw record here would print notices and expose internal fields.
+			'active'       => $active ? $this->plugin->connections()->public_view( (array) $active ) : null,
 			'connections'  => $this->plugin->connections()->list_public(),
 			'recent'       => $this->plugin->results()->recent_jobs( 8 ),
 			'usage'        => $this->plugin->results()->storage_usage(),

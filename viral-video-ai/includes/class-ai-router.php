@@ -196,6 +196,9 @@ class VVAI_AI_Router {
 				'ok'      => true,
 				'code'    => 'connected',
 				'message' => (string) $attempt['message'],
+				'latency' => (int) $attempt['latency'],
+				'http'    => (int) $attempt['http'],
+				'models'  => array_slice( (array) $attempt['models'], 0, 120 ),
 				'record'  => $this->connections->public_view( $updated ? $updated : (array) $this->connections->get( $id ) ),
 			);
 		}
@@ -216,6 +219,8 @@ class VVAI_AI_Router {
 			'code'    => (string) $attempt['code'],
 			'message' => (string) $attempt['message'],
 			'hint'    => (string) vvai_array_get( $attempt, 'hint', '' ),
+			'latency' => (int) $attempt['latency'],
+			'http'    => (int) $attempt['http'],
 			'record'  => $this->connections->public_view( (array) $this->connections->get( $id ) ),
 		);
 	}

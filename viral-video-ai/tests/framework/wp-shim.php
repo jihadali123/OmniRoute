@@ -2109,3 +2109,35 @@ function _deprecated_function( $function, $version, $replacement = '' ) { error_
 function _prime_post_caches() {}
 function clean_cache() {}
 function wp_observe_memory_limit() {}
+
+if ( ! function_exists( 'human_time_diff' ) ) {
+	/**
+	 * Human readable time difference.
+	 *
+	 * @param int $from Timestamp.
+	 * @param int $to   Timestamp.
+	 * @return string
+	 */
+	function human_time_diff( $from, $to = 0 ) {
+		$to      = $to ? (int) $to : time();
+		$diff    = abs( (int) $to - (int) $from );
+
+		if ( $diff < MINUTE_IN_SECONDS ) {
+			return $diff . ' secs';
+		}
+
+		if ( $diff < HOUR_IN_SECONDS ) {
+			return intdiv( $diff, MINUTE_IN_SECONDS ) . ' mins';
+		}
+
+		if ( $diff < DAY_IN_SECONDS ) {
+			return round( $diff / HOUR_IN_SECONDS, 1 ) . ' hours';
+		}
+
+		return round( $diff / DAY_IN_SECONDS, 1 ) . ' days';
+	}
+}
+
+if ( ! function_exists( 'get_query_var' ) ) {
+	function get_query_var( $var, $default = '' ) { return $default; }
+}
